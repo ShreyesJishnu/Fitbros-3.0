@@ -1,9 +1,19 @@
 const path = require("path");
 
-// Use the HTTP-only client on Vercel (no native bindings needed).
-// Use the full client locally (supports file: URLs for local SQLite).
+/**
+ * Two clients, one interface.
+ *
+ * Against Turso we use @tursodatabase/serverless — fetch only, no native
+ * bindings, and the package Turso now recommends for serverless functions. Its
+ * compat build keeps the @libsql/client shape (execute/batch/executeMultiple),
+ * so nothing above this file changes.
+ *
+ * Locally the database is a file, which the serverless client cannot open, so
+ * development stays on @libsql/client. Same SQL, same dialect, same results —
+ * verified against the live database before this was switched.
+ */
 const { createClient } = process.env.TURSO_DATABASE_URL
-  ? require("@libsql/client/web")
+  ? require("@tursodatabase/serverless/compat")
   : require("@libsql/client");
 
 const localDbPath = path.join(__dirname, "database", "fitbois.db");
