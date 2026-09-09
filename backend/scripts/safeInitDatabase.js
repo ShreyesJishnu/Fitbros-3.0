@@ -1,32 +1,26 @@
 /**
- * Create the tables on a database that hasn't got them yet.
+ * Bring a database up to the current shape, once, before anything talks to it.
  *
- * The shape comes from ../schema.js — the same DDL the server runs on boot, so
- * this script cannot drift from it the way its hand-copied version did.
+ * Run this against a new deployment's database — with TURSO_DATABASE_URL and
+ * TURSO_AUTH_TOKEN set — so the server never has to build the schema on a cold
+ * start. The shape comes from ../initDatabase.js, the same code the server
+ * would run, so the two cannot drift.
  */
 const db = require("../db");
-const { DDL, INDEXES, MIGRATIONS } = require("../schema");
+const { runDatabaseInit } = require("../initDatabase");
 
-async function initDatabase() {
-  console.log("🚀 Initializing FitBros 3.0 Database...");
-
-  await db.execMultiple(DDL);
-  for (const sql of MIGRATIONS) {
-    try {
-      await db.exec(sql);
-    } catch (err) {
-      if (!String(err.message).includes("duplicate column")) throw err;
-    }
-  }
-  await db.execMultiple(INDEXES);
-
-  const row = await db.get("SELECT COUNT(*) as count FROM users");
-  console.log(`📊 Current users in database: ${row.count}`);
-  console.log("✅ Database initialization complete!");
-}
-
-initDatabase()
-  .then(() => process.exit(0))
+runDatabaseInit()
+  .then(async () => {
+    const row = await db.get("SELECT COUNT(*) as count FROM users");
+    const season = await db.get("SELECT current_week FROM admin_settings WHERE id = 1");
+    console.log(`📊 Players: ${row.count} · season on week ${season?.current_week}`);
+    console.log(
+      process.env.TURSO_DATABASE_URL
+        ? "🌍 Turso database is ready."
+        : "💾 Local database is ready."
+    );
+    process.exit(0);
+  })
   .catch((err) => {
     console.error("❌ Database initialization failed:", err);
     process.exit(1);

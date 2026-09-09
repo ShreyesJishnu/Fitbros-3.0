@@ -6,6 +6,7 @@ const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const db = require("./db");
 const engine = require("../src/utils/seasonEngine");
+const { runDatabaseInit, schemaIsReady } = require("./initDatabase");
 
 /**
  * How long a fine has before it reads as overdue. The engine used to own this;
@@ -57,74 +58,14 @@ if (isProduction && !isVercel) {
 
 // ==================== DATABASE INITIALIZATION ====================
 
-const SEASON_WEEKS_MS = engine.SEASON_WEEKS * 7 * 24 * 60 * 60 * 1000;
-
 let initPromise = null;
-
-async function runDatabaseInit() {
-  console.log("🚀 Initializing database...");
-
-  const { DDL, INDEXES, MIGRATIONS } = require("./schema");
-  const ddl = DDL;
-
-  // libsql/client supports executeMultiple for batched multi-statement SQL
-  if (typeof db.execMultiple === "function") {
-    await db.execMultiple(ddl);
-  } else {
-    // Fallback: split and execute sequentially
-    const statements = ddl
-      .split(";")
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0);
-    for (const stmt of statements) {
-      try {
-        await db.exec(stmt);
-      } catch (err) {
-        console.error("DDL error:", err.message);
-      }
-    }
-  }
-
-  // CREATE TABLE IF NOT EXISTS won't add a column to a table that already exists.
-  // CREATE TABLE IF NOT EXISTS won't add columns to a table that already exists.
-  const addColumns = MIGRATIONS;
-  for (const sql of addColumns) {
-    try {
-      await db.exec(sql);
-    } catch (err) {
-      if (!String(err.message).includes("duplicate column")) {
-        console.error("Migration note:", err.message);
-      }
-    }
-  }
-
-  // A season needs a row to be a season: every screen reads the current week
-  // from here, and nothing else creates it, so a fresh database would answer
-  // "Season not configured" forever. Admin edits the dates afterwards.
-  const seasonStart = new Date().toISOString().slice(0, 10);
-  const seasonEnd = new Date(Date.now() + SEASON_WEEKS_MS).toISOString().slice(0, 10);
-  await db.run(
-    `INSERT OR IGNORE INTO admin_settings
-       (id, challenge_start_date, challenge_end_date, current_week, is_active)
-     VALUES (1, ?, ?, 1, 1)`,
-    [seasonStart, seasonEnd]
-  );
-
-  // Indexes last: some of them cover columns the ALTERs above just added.
-  if (typeof db.execMultiple === "function") {
-    await db.execMultiple(INDEXES);
-  } else {
-    for (const stmt of INDEXES.split(";").map((s) => s.trim()).filter(Boolean)) {
-      await db.exec(stmt);
-    }
-  }
-
-  console.log("✅ Database initialization complete");
-}
 
 function ensureInit() {
   if (!initPromise) {
-    initPromise = runDatabaseInit().catch((err) => {
+    initPromise = (async () => {
+      if (await schemaIsReady()) return;
+      await runDatabaseInit();
+    })().catch((err) => {
       initPromise = null;
       throw err;
     });
@@ -1918,6 +1859,30 @@ if (isProduction && !isVercel) {
     }
   });
 }
+
+// ==================== ERRORS ====================
+
+/**
+ * Anything a route did not catch.
+ *
+ * Vercel's own guidance: an Express app that renders its own HTML error page
+ * leaves the function in an undefined state, because the platform never learns
+ * the invocation failed. Answer JSON, say nothing about the internals, and let
+ * the log carry the detail.
+ */
+// eslint-disable-next-line no-unused-vars -- Express identifies a handler as an
+// error handler by its four arguments; dropping `next` makes it an ordinary one.
+app.use((err, req, res, next) => {
+  console.error(`Unhandled error on ${req.method} ${req.path}:`, err);
+  if (res.headersSent) return;
+  res.status(500).json({ error: "Something went wrong. Try again." });
+});
+
+// A request to an endpoint that does not exist is a 404 in JSON, not Express's
+// HTML page — every caller here speaks JSON.
+app.use("/api", (req, res) => {
+  res.status(404).json({ error: `No such endpoint: ${req.method} ${req.path}` });
+});
 
 // ==================== START SERVER (standalone mode only) ====================
 
