@@ -99,6 +99,8 @@ function AppContent() {
   );
   const [isRetrying, setIsRetrying] = useState(false);
   const [loadFailed, setLoadFailed] = useState(false);
+  /** A load has finished at least once — so an empty season is empty, not pending. */
+  const [hasLoaded, setHasLoaded] = useState(false);
 
   // True while we're showing snapshot data but the background refresh has not
   // yet completed. Drives mutation-blocking and the "Refreshing…" banner.
@@ -179,6 +181,7 @@ function AppContent() {
       setSnapshotSavedAt(Date.now());
       setIsOffline(false);
       setLoadFailed(false);
+      setHasLoaded(true);
       retryAttemptRef.current = 0;
 
       return true;
@@ -423,7 +426,27 @@ function AppContent() {
     );
   }
 
-  if (!currentUser) {
+  // A season with nobody in it yet — the first thing a new deployment shows.
+  // It used to spin forever: no players meant no current player, and no current
+  // player meant the app never rendered, including the admin screen that adds
+  // the first one. The admin goes straight to Admin; everyone else is told to
+  // wait for them.
+  const emptySeason = hasLoaded && users.length === 0;
+
+  if (!currentUser && emptySeason && !admin) {
+    return (
+      <div className="min-h-screen bg-paper flex items-center justify-center p-6">
+        <div className="text-center max-w-sm">
+          <h1 className="display text-4xl mb-2">No season yet</h1>
+          <p className="text-ink-muted">
+            Nobody has been added. Whoever runs the season adds the players first.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!currentUser && !(emptySeason && admin)) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center">
         <div className="text-center">
@@ -452,7 +475,7 @@ function AppContent() {
         />
       ) : null}
       <Header
-        activeView={activeView}
+        activeView={emptySeason && admin ? "admin" : activeView}
         onViewChange={setActiveView}
         isAdmin={admin}
         users={users}
@@ -475,7 +498,7 @@ function AppContent() {
               </div>
             }
           >
-            {activeView === "me" && (
+            {!emptySeason && activeView === "me" && (
               <MeView
                 currentUser={currentUser}
                 users={users}
@@ -488,11 +511,11 @@ function AppContent() {
               />
             )}
 
-            {activeView === "group" && <GroupBoard currentUser={currentUser} goals={goals} />}
+            {!emptySeason && activeView === "group" && <GroupBoard currentUser={currentUser} goals={goals} />}
 
-            {activeView === "rules" && <Rules />}
+            {!emptySeason && activeView === "rules" && <Rules />}
 
-            {activeView === "admin" && admin && (
+            {(activeView === "admin" || emptySeason) && admin && (
               <Admin
                 users={users}
                 workoutDays={workoutDays}
