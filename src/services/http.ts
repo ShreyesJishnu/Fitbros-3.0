@@ -42,7 +42,37 @@ const claimAdminFromUrl = () => {
   }
 };
 
+/**
+ * Which player this device is.
+ *
+ * Same shape as the admin key: open your own link once — `?me=<your id>` — and
+ * the device remembers it. Without it there is no way to pick a name, which is
+ * the point: the picker used to let anyone play as anyone and log workouts in
+ * their name. The admin still switches freely, because someone has to be able
+ * to fix a record.
+ *
+ * This is a capability, not a credential. Anyone holding another player's link
+ * can be them, and the API still trusts the x-player-id header it is sent.
+ */
+const PLAYER_KEY = "playerId";
+
+const claimPlayerFromUrl = () => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (!params.has("me")) return;
+    const id = params.get("me") || "";
+    if (id) localStorage.setItem(PLAYER_KEY, id);
+    else localStorage.removeItem(PLAYER_KEY);
+    params.delete("me");
+    const query = params.toString();
+    window.history.replaceState({}, "", window.location.pathname + (query ? `?${query}` : ""));
+  } catch {
+    /* private mode, or no history API — the id just is not remembered */
+  }
+};
+
 claimAdminFromUrl();
+claimPlayerFromUrl();
 
 export const adminKey = (): string | null => {
   try {
@@ -54,14 +84,27 @@ export const adminKey = (): string | null => {
 
 export const isAdmin = (): boolean => Boolean(adminKey());
 
-/** Kept in localStorage by the player picker in the header. */
+/** Whoever this device has been linked to, or nobody. */
 export const currentPlayerId = (): string | null => {
   try {
-    return localStorage.getItem("playerId");
+    return localStorage.getItem(PLAYER_KEY);
   } catch {
     return null;
   }
 };
+
+/** The admin switching seats, or a player claiming their link. */
+export const setCurrentPlayerId = (id: string): void => {
+  try {
+    localStorage.setItem(PLAYER_KEY, id);
+  } catch {
+    /* private mode — the choice lasts for this page only */
+  }
+};
+
+/** The link to send a player so their device knows who they are. */
+export const playerLink = (id: string): string =>
+  `${window.location.origin}${window.location.pathname}?me=${encodeURIComponent(id)}`;
 
 export const apiFetch = (path: string, init: RequestInit = {}): Promise<Response> => {
   const player = currentPlayerId();

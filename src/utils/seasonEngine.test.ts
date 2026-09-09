@@ -40,7 +40,10 @@ const workouts = (userId: string, perWeek: WeekEntry[]): WorkoutDay[] => {
   return rows;
 };
 
-const season = (perWeek: WeekEntry[], opts: { settledWeeks?: number[] } = {}) =>
+const season = (
+  perWeek: WeekEntry[],
+  opts: { settledWeeks?: number[]; settledAmounts?: Record<number, number> } = {}
+) =>
   runSeason({
     userId: 'u1',
     workoutDays: workouts('u1', perWeek),
@@ -140,6 +143,35 @@ describe('the price ladder', () => {
     expect(s.priceLevel).toBe(1);
     expect(s.cleanStreak).toBe(2);
   });
+
+  test('ten clean weeks between two misses leave the second at ₹200', () => {
+    // The forgiving half has to work at the bottom rung too. A player who goes
+    // clean for ten weeks must not be worse off than one who missed twice.
+    const s = season([0, ...Array(10).fill(5), 0], { settledWeeks: [1, 12] });
+    expect(s.weeks[11].fine).toBe(200);
+    expect(s.priceLevel).toBe(1);
+  });
+
+  test('two misses then two clean weeks is not the cheaper history', () => {
+    const forgiven = season([0, ...Array(10).fill(5), 0], { settledWeeks: [1, 12] });
+    const punished = season([0, 0, 5, 5], { settledWeeks: paidUp(2) });
+    expect(punished.priceLevel).toBe(1);
+    expect(forgiven.priceLevel).toBeLessThanOrEqual(punished.priceLevel);
+  });
+
+  test('two clean weeks at the bottom rung clear the strikes without going below ₹200', () => {
+    const s = season([0, 5, 5, 0, 0], { settledWeeks: paidUp(5) });
+    // Week 1's strike is wiped by weeks 2-3, so weeks 4 and 5 are the first two
+    // at this price again — both ₹200, and the price never falls under level 1.
+    expect(s.weeks.map((w) => w.fine)).toEqual([200, 0, 0, 200, 200]);
+    expect(s.priceLevel).toBe(2);
+    expect(fineAtLevel(s.priceLevel)).toBe(400);
+  });
+
+  test('two misses still double on the third, streak or not', () => {
+    const s = season([0, 0, 0], { settledWeeks: paidUp(3) });
+    expect(s.weeks.map((w) => w.fine)).toEqual([200, 200, 400]);
+  });
 });
 
 describe('what is owed', () => {
@@ -175,6 +207,30 @@ describe('what is owed', () => {
     const clear = season([0, 0, 0], { settledWeeks: [1, 2, 3] });
     expect(clear.outstanding).toBe(0);
     expect(clear.potEligible).toBe(true);
+  });
+
+  test('a recorded amount is what was paid, whatever the replay now derives', () => {
+    // Editing history must not rewrite somebody's receipt. Week 3 replays as a
+    // ₹400 miss, but ₹200 is what actually changed hands.
+    const s = season([0, 0, 0], { settledWeeks: [3], settledAmounts: { 3: 200 } });
+    expect(s.weeks[2].fine).toBe(400);
+    expect(s.paid).toBe(200);
+    expect(s.outstanding).toBe(400);
+    expect(s.billed).toBe(800);
+  });
+
+  test('a settled week with no recorded amount falls back to the derived fine', () => {
+    // Rows written before the amount was stored have none.
+    const s = season([0, 0, 0], { settledWeeks: [1, 2, 3], settledAmounts: { 1: 150 } });
+    expect(s.paid).toBe(150 + 200 + 400);
+    expect(s.outstanding).toBe(0);
+    expect(s.potEligible).toBe(true);
+  });
+
+  test('a recorded amount never changes what is still owed', () => {
+    const s = season([0, 0], { settledWeeks: [1], settledAmounts: { 1: 0 } });
+    expect(s.paid).toBe(0);
+    expect(s.outstanding).toBe(200);
   });
 
   test('a player is not billed for the weeks before they joined', () => {

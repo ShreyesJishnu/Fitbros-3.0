@@ -91,21 +91,30 @@ const Header: React.FC<HeaderProps> = ({
                 <ThemeIcon size={16} aria-hidden="true" />
               </button>
               <span className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-faint">
-                Playing as
+                {isAdmin ? "Playing as" : "You are"}
               </span>
-              <select
-                value={currentUser?.id ?? ""}
-                onChange={(e) => onChangePlayer(e.target.value)}
-                aria-label="Choose which player you are"
-                className="min-h-[40px] pl-2 pr-8 border-0 bg-transparent text-sm font-semibold text-ink
-                           cursor-pointer focus:ring-2 focus:ring-clean-500 rounded-lg"
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.name}
-                  </option>
-                ))}
-              </select>
+              {/* Only the admin switches seats. For everyone else the name is a
+                  label, not a control — choosing it was how one player could log
+                  workouts in another's name. */}
+              {isAdmin ? (
+                <select
+                  value={currentUser?.id ?? ""}
+                  onChange={(e) => onChangePlayer(e.target.value)}
+                  aria-label="Choose which player you are"
+                  className="min-h-[40px] pl-2 pr-8 border-0 bg-transparent text-sm font-semibold text-ink
+                             cursor-pointer focus:ring-2 focus:ring-clean-500 rounded-lg"
+                >
+                  {users.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <span className="text-sm font-semibold text-ink px-2">
+                  {currentUser?.name ?? "Not linked"}
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -124,18 +133,24 @@ const Header: React.FC<HeaderProps> = ({
           >
             <ThemeIcon size={16} aria-hidden="true" />
           </button>
-          <select
-            value={currentUser?.id ?? ""}
-            onChange={(e) => onChangePlayer(e.target.value)}
-            aria-label="Choose which player you are"
-            className="min-h-[40px] pl-2 pr-8 border-0 bg-transparent text-sm font-semibold text-ink max-w-[45%] rounded-lg"
-          >
-            {users.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.name}
-              </option>
-            ))}
-          </select>
+          {isAdmin ? (
+            <select
+              value={currentUser?.id ?? ""}
+              onChange={(e) => onChangePlayer(e.target.value)}
+              aria-label="Choose which player you are"
+              className="min-h-[40px] pl-2 pr-8 border-0 bg-transparent text-sm font-semibold text-ink max-w-[45%] rounded-lg"
+            >
+              {users.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.name}
+                </option>
+              ))}
+            </select>
+          ) : (
+            <span className="text-sm font-semibold text-ink max-w-[45%] truncate">
+              {currentUser?.name ?? "Not linked"}
+            </span>
+          )}
         </div>
       </header>
 

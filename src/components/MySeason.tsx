@@ -8,9 +8,10 @@ import {
   Trophy,
 } from "lucide-react";
 import { User, WorkoutDay, WorkoutKind } from "../types";
-import { apiFetch } from "../services/http";
+import { apiFetch, isAdmin } from "../services/http";
 import {
   CREDIT_BY_KIND,
+  PAYMENT_GRACE_HOURS,
   SEASON_WEEKS,
   WEEK_ENDS_ON,
   WEEKS_TO_MOVE,
@@ -121,7 +122,7 @@ const nudgeFor = (
   if (outstanding > 0) {
     return {
       tone: "owed",
-      text: `${rupees(outstanding)} is due. Clear it — nothing outstanding is what keeps you in for the pot.`,
+      text: `${rupees(outstanding)} is due. Settle it with whoever runs the season — nothing outstanding is what keeps you in for the pot.`,
     };
   }
 
@@ -157,6 +158,8 @@ const MySeason: React.FC<MySeasonProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  // Recording a payment is the admin's job — the server refuses it from anyone else.
+  const admin = isAdmin();
 
   const load = useCallback(async () => {
     try {
@@ -412,7 +415,7 @@ const MySeason: React.FC<MySeasonProps> = ({
             </div>
           </div>
 
-          {/* Money you owe, and the one action that clears it. */}
+          {/* Money you owe. Paying happens between people; only the admin records it. */}
           {me.unsettledFines.length > 0 ? (
             <ul className="border-t border-line pt-4 mt-5 space-y-1.5">
               {me.unsettledFines.map((f) => (
@@ -432,17 +435,25 @@ const MySeason: React.FC<MySeasonProps> = ({
                       Week {f.week} — {rupees(f.amount)}
                     </span>
                     <span className={f.overdue ? "text-owed-600" : "text-ink-muted"}>
-                      {f.overdue ? "past its 48 hours" : "due within 48 hours"}
+                      {f.overdue
+                        ? `past its ${PAYMENT_GRACE_HOURS} hours`
+                        : `due within ${PAYMENT_GRACE_HOURS} hours`}
                     </span>
                   </span>
-                  <button
-                    onClick={() => call(`/fines/${f.id}/settle`)}
-                    disabled={busy}
-                    className="min-h-[44px] px-4 bg-ink text-paper rounded-lg text-xs font-semibold cursor-pointer
-                               disabled:opacity-35 disabled:cursor-not-allowed"
-                  >
-                    Mark paid
-                  </button>
+                  {admin ? (
+                    <button
+                      onClick={() => call(`/fines/${f.id}/settle`)}
+                      disabled={busy}
+                      className="min-h-[44px] px-4 bg-ink text-paper rounded-lg text-xs font-semibold cursor-pointer
+                                 disabled:opacity-35 disabled:cursor-not-allowed"
+                    >
+                      Mark paid
+                    </button>
+                  ) : (
+                    <span className="text-xs text-ink-muted">
+                      Pay it directly — whoever runs the season marks it paid.
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

@@ -198,6 +198,20 @@ function denyUnlessOwner(req, res, ownerId) {
   return false;
 }
 
+/**
+ * A week that has closed is history. Rewriting it re-derives that week's fine,
+ * which can void a debt that was already billed — so only the admin, who has to
+ * be able to correct a genuine mistake, may write into one.
+ * Callers pass the current week they already read; nobody pays a second round trip.
+ */
+function denyUnlessWeekOpen(req, res, weekNum, currentWeek) {
+  if (weekNum >= currentWeek || isAdminRequest(req)) return false;
+  res.status(403).json({
+    error: `Week ${weekNum} is closed — the season is on week ${currentWeek}. Only the admin can correct a closed week.`,
+  });
+  return true;
+}
+
 // ==================== USER ROUTES ====================
 
 app.get("/api/users", async (req, res) => {
@@ -683,6 +697,7 @@ app.post("/api/workouts", async (req, res) => {
       });
       return;
     }
+    if (denyUnlessWeekOpen(req, res, weekNum, currentWeek)) return;
 
     const existingRow = await db.get(
       `SELECT id FROM workout_days WHERE user_id = ? AND week = ? AND day_of_week = ?`,
@@ -747,12 +762,13 @@ app.delete("/api/workouts/:id", async (req, res) => {
   try {
     // Deleting a day can turn a clean week into a missed one, so it is a write
     // to that player's record and belongs to them alone.
-    const row = await db.get("SELECT user_id FROM workout_days WHERE id = ?", [req.params.id]);
+    const row = await db.get("SELECT user_id, week FROM workout_days WHERE id = ?", [req.params.id]);
     if (!row) {
       res.status(404).json({ error: "Workout not found" });
       return;
     }
     if (denyUnlessOwner(req, res, row.user_id)) return;
+    if (denyUnlessWeekOpen(req, res, Number(row.week), await seasonCurrentWeek())) return;
 
     const result = await db.run("DELETE FROM workout_days WHERE id = ?", [
       req.params.id,
@@ -1512,6 +1528,20 @@ app.get("/api/feed", async (req, res) => {
  * Someone who joins in week 11 owes nothing for the ten weeks they were not in.
  * Their start date against the season's start date is the only record of that.
  */
+/**
+ * What each settled week was actually paid, by week.
+ *
+ * A replay can re-derive a week's fine at a different price level; it must not
+ * re-derive somebody's receipt. Rows settled before the amount was recorded have
+ * no entry here, and the engine falls back to the derived fine for those.
+ */
+const recordedPayments = (fineRows) =>
+  Object.fromEntries(
+    fineRows
+      .filter((r) => r.settled_at && r.settled_amount != null)
+      .map((r) => [Number(r.week), Number(r.settled_amount)])
+  );
+
 function joinedAtWeek(playerStart, seasonStart) {
   if (!playerStart || !seasonStart) return 1;
   const days = (Date.parse(playerStart) - Date.parse(seasonStart)) / 86400000;
@@ -1525,7 +1555,10 @@ async function loadSeason(userId) {
       "SELECT user_id, week, day_of_week, is_completed, kind FROM workout_days WHERE user_id = ?",
       [userId]
     ),
-    db.all("SELECT week, settled_at FROM fines WHERE user_id = ? AND voided_at IS NULL", [userId]),
+    db.all(
+      "SELECT week, amount, settled_at, settled_amount FROM fines WHERE user_id = ? AND voided_at IS NULL",
+      [userId]
+    ),
     db.get("SELECT current_week, challenge_start_date FROM admin_settings WHERE id = 1"),
     db.get("SELECT start_date FROM users WHERE id = ?", [userId]),
   ]);
@@ -1544,6 +1577,7 @@ async function loadSeason(userId) {
     userId,
     workoutDays,
     settledWeeks: fineRows.filter((r) => r.settled_at).map((r) => Number(r.week)),
+    settledAmounts: recordedPayments(fineRows),
     completedWeeks: Math.max(0, currentWeek - 1),
     fromWeek: joinedAtWeek(player?.start_date, settings?.challenge_start_date),
   });
@@ -1687,7 +1721,7 @@ app.get("/api/seasons", async (req, res) => {
       db.all("SELECT id, name, start_date FROM users ORDER BY name COLLATE NOCASE ASC"),
       db.all("SELECT user_id, week, day_of_week, is_completed, kind FROM workout_days"),
       db.all(
-        `SELECT user_id, id, week, amount, settled_at, issued_at, due_at
+        `SELECT user_id, id, week, amount, settled_at, settled_amount, issued_at, due_at
          FROM fines WHERE voided_at IS NULL ORDER BY week DESC`
       ),
       db.get("SELECT current_week, challenge_start_date FROM admin_settings WHERE id = 1"),
@@ -1713,6 +1747,7 @@ app.get("/api/seasons", async (req, res) => {
             isCompleted: Boolean(r.is_completed),
           })),
           settledWeeks: fines.filter((r) => r.settled_at).map((r) => Number(r.week)),
+          settledAmounts: recordedPayments(fines),
           completedWeeks,
           fromWeek: joinedAtWeek(user.start_date, settings?.challenge_start_date),
         });
@@ -1815,18 +1850,25 @@ app.get("/api/fines", async (req, res) => {
 // Settling clears the balance, and with it the pot eligibility it was blocking.
 app.post("/api/fines/:id/settle", async (req, res) => {
   try {
-    const fine = await db.get("SELECT id, user_id, settled_at FROM fines WHERE id = ?", [req.params.id]);
+    const fine = await db.get("SELECT id, user_id, amount, settled_at FROM fines WHERE id = ?", [req.params.id]);
     if (!fine) {
       res.status(404).json({ error: "Fine not found" });
       return;
     }
-    if (denyUnlessOwner(req, res, fine.user_id)) return;
+    // Paying happens between people; recording it is the admin's job. A player
+    // marking their own fine paid is the whole debt gone for the price of a header.
+    if (denyUnlessAdmin(req, res)) return;
     if (fine.settled_at) {
       res.status(409).json({ error: "Fine already settled" });
       return;
     }
 
-    await db.run("UPDATE fines SET settled_at = ? WHERE id = ?", [new Date().toISOString(), req.params.id]);
+    // Record what was paid, not what a later replay would derive.
+    await db.run("UPDATE fines SET settled_at = ?, settled_amount = ? WHERE id = ?", [
+      new Date().toISOString(),
+      Number(fine.amount),
+      req.params.id,
+    ]);
     const { state } = await syncFines(fine.user_id);
 
     res.json({ message: "Fine settled", outstanding: state.outstanding });

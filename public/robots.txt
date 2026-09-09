@@ -1,0 +1,3 @@
+# Nine friends and their money. Nothing here is for search engines.
+User-agent: *
+Disallow: /

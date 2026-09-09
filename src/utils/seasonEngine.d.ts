@@ -46,6 +46,8 @@ export interface SeasonInput {
   workoutDays: WorkoutDay[];
   /** Weeks whose fine has been settled. */
   settledWeeks?: number[];
+  /** What was actually paid for a settled week, as recorded at the time. */
+  settledAmounts?: Record<number, number>;
   /** Weeks completed so far; the in-progress week is not judged. */
   completedWeeks: number;
   /** The first week this player was in the season. Earlier weeks are not theirs. */

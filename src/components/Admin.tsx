@@ -6,11 +6,13 @@ import {
   Trash2,
   UserPlus,
   RotateCcw,
-  CalendarPlus
+  CalendarPlus,
+  Link as LinkIcon,
+  Check
 } from 'lucide-react';
 import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './ToastContext';
-import { apiFetch } from '../services/http';
+import { apiFetch, playerLink } from '../services/http';
 import { CREDIT_BY_KIND, fineAtLevel, SEASON_WEEKS, WORKOUTS_PER_WEEK } from '../utils/seasonEngine';
 
 /** The ladder is the engine's to state — this screen only prints it. */
@@ -55,6 +57,26 @@ const Admin: React.FC<AdminProps> = ({
   const [showAddUser, setShowAddUser] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [checkingFines, setCheckingFines] = useState(false);
+  const [startDate, setStartDate] = useState(adminSettings.challengeStartDate);
+  const [savingDates, setSavingDates] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  /**
+   * A player's own link. Opening it once tells that device who it is, which is
+   * how a new phone, or somebody who tapped the wrong name, gets put right.
+   */
+  const copyPlayerLink = async (user: User) => {
+    const link = playerLink(user.id);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedId(user.id);
+      setTimeout(() => setCopiedId((id) => (id === user.id ? null : id)), 2000);
+      showToast(`Link for ${user.name} copied`, 'success');
+    } catch {
+      // Clipboard is blocked outside a secure context — show it instead.
+      showToast(link, 'info');
+    }
+  };
   const [confirmDialog, setConfirmDialog] = useState<{
     isOpen: boolean;
     title: string;
@@ -197,6 +219,43 @@ const Admin: React.FC<AdminProps> = ({
     }
   };
 
+  /**
+   * When the season actually begins.
+   *
+   * The date decides which week a player joined in, and nothing else — weeks
+   * only advance when someone closes one. Moving it before anybody has joined
+   * costs nothing; moving it later, once weeks have been scored, would change
+   * who was in the season when.
+   */
+  const saveStartDate = async () => {
+    setSavingDates(true);
+    try {
+      const end = new Date(startDate);
+      end.setDate(end.getDate() + SEASON_WEEKS * 7);
+      const res = await apiFetch('/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          challengeStartDate: startDate,
+          challengeEndDate: end.toISOString().slice(0, 10),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(data.error ?? 'Could not move the season start', 'error');
+        return;
+      }
+      onSettingsChange({
+        challengeStartDate: data.challengeStartDate,
+        challengeEndDate: data.challengeEndDate,
+        currentWeek: data.currentWeek,
+        isActive: data.isActive,
+      });
+      showToast(`Season starts ${data.challengeStartDate}`, 'success');
+    } finally {
+      setSavingDates(false);
+    }
+  };
+
   const advanceWeek = async () => {
     setAdvancing(true);
     try {
@@ -315,6 +374,37 @@ const Admin: React.FC<AdminProps> = ({
             <dd className="display text-2xl tnum mt-0.5 text-owed-600">{atLevel((l) => l > 1)}</dd>
           </div>
         </dl>
+
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-line rounded-lg bg-paper-card px-3 py-3">
+          <div>
+            <label
+              htmlFor="season-start"
+              className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted"
+            >
+              Season starts
+            </label>
+            <div className="flex items-center gap-2 mt-1">
+              <input
+                id="season-start"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                className="min-h-[44px] px-3 border border-line rounded-lg bg-paper-card text-ink text-sm"
+              />
+              <span className="text-xs text-ink-muted">
+                Weeks run Monday to Monday · {SEASON_WEEKS} of them
+              </span>
+            </div>
+          </div>
+          <button
+            onClick={saveStartDate}
+            disabled={savingDates || startDate === adminSettings.challengeStartDate}
+            className="min-h-[44px] px-4 rounded-lg border border-line text-ink text-sm font-semibold
+                       hover:border-ink disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {savingDates ? 'Saving…' : 'Save start date'}
+          </button>
+        </div>
 
         {/* The season only moves when someone says so — and it is hard to undo. */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-line rounded-lg bg-paper-card px-3 py-3">
@@ -451,6 +541,14 @@ const Admin: React.FC<AdminProps> = ({
                           title="Edit player"
                         >
                           <Edit size={16} />
+                        </button>
+                        <button
+                          onClick={() => copyPlayerLink(user)}
+                          className="min-w-[44px] min-h-[44px] flex items-center justify-center text-ink-muted hover:bg-paper-sunk rounded-lg transition-colors"
+                          aria-label={`Copy ${user.name}'s link`}
+                          title="Copy this player's link"
+                        >
+                          {copiedId === user.id ? <Check size={16} /> : <LinkIcon size={16} />}
                         </button>
                         <button
                           onClick={() => handleDeactivateUser(user)}

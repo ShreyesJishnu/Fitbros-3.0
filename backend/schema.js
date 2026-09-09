@@ -73,6 +73,7 @@ const DDL = `
     issued_at TEXT NOT NULL,
     due_at TEXT NOT NULL,
     settled_at TEXT,
+    settled_amount INTEGER, -- what was actually paid, not what a replay derives
     waived_by_token_id TEXT,
     voided_at TEXT,
     voided_reason TEXT,
@@ -132,6 +133,7 @@ const MIGRATIONS = [
   "ALTER TABLE fines ADD COLUMN issued_at TEXT",
   "ALTER TABLE fines ADD COLUMN due_at TEXT",
   "ALTER TABLE fines ADD COLUMN settled_at TEXT",
+  "ALTER TABLE fines ADD COLUMN settled_amount INTEGER",
   "ALTER TABLE fines ADD COLUMN waived_by_token_id TEXT",
   "ALTER TABLE workout_days ADD COLUMN kind TEXT NOT NULL DEFAULT 'session'",
   "ALTER TABLE goals ADD COLUMN baseline_value REAL",

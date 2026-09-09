@@ -56,6 +56,36 @@ export const goalFraction = (goal: Goal, reading?: number): number | null => {
   return Math.max(0, Math.min(1, (reading - goal.baselineValue) / (goal.targetValue - goal.baselineValue)));
 };
 
+/**
+ * One column per week, counted across everybody who played it, with the running bill.
+ *
+ * Grouped by the week number, never by position in a player's array: someone who
+ * joined in week 6 has that week first, and indexing by position filed it under
+ * week 1 and dropped their last weeks off the end. A week nobody had joined yet
+ * simply has fewer players in it.
+ */
+export const weeklyColumns = (rows: StatsRow[]) => {
+  const byWeek: Record<number, WeekCell[]> = {};
+  rows.forEach((r) => r.weeks.forEach((c) => (byWeek[c.week] ??= []).push(c)));
+  let running = 0;
+  return Object.keys(byWeek)
+    .map(Number)
+    .sort((a, b) => a - b)
+    .map((week) => {
+      const cells = byWeek[week];
+      const fined = cells.reduce((sum, c) => sum + c.fine, 0);
+      running += fined;
+      return {
+        week,
+        clean: cells.filter((c) => c.outcome === "clean").length,
+        missed: cells.filter((c) => c.outcome === "missed").length,
+        fined,
+        running,
+        players: cells.length,
+      };
+    });
+};
+
 const SECTION_HEAD = "text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted";
 
 const GroupStats: React.FC<{ rows: StatsRow[]; currentUserId?: string; goals: Goal[] }> = ({
@@ -105,24 +135,7 @@ const GroupStats: React.FC<{ rows: StatsRow[]; currentUserId?: string; goals: Go
     };
   }, [goals]);
 
-  /** One row per week, counted across everybody who played it, with the running bill. */
-  const weeks = useMemo(() => {
-    const played = Math.max(0, ...rows.map((r) => r.weeks.length));
-    let running = 0;
-    return Array.from({ length: played }, (_, i) => {
-      const cells = rows.map((r) => r.weeks[i]).filter(Boolean);
-      const fined = cells.reduce((sum, c) => sum + c.fine, 0);
-      running += fined;
-      return {
-        week: cells[0]?.week ?? i + 1,
-        clean: cells.filter((c) => c.outcome === "clean").length,
-        missed: cells.filter((c) => c.outcome === "missed").length,
-        fined,
-        running,
-        players: cells.length,
-      };
-    });
-  }, [rows]);
+  const weeks = useMemo(() => weeklyColumns(rows), [rows]);
 
   /** Clean weeks, most first. Ties share a position, so 1st, 1st, 3rd. */
   const standing = useMemo(() => {
@@ -252,7 +265,7 @@ const GroupStats: React.FC<{ rows: StatsRow[]; currentUserId?: string; goals: Go
           className="flex gap-1 h-36 mt-3 items-end"
           onMouseLeave={() => setHoverWeek(null)}
           role="img"
-          aria-label={`How many of the ${rows.length} players went clean and how many were fined, each week from ${weeks[0].week} to ${weeks[weeks.length - 1].week}`}
+          aria-label={`How many players went clean and how many were fined, each week from ${weeks[0].week} to ${weeks[weeks.length - 1].week}`}
         >
           {weeks.map((w) => (
             <div

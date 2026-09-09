@@ -6,7 +6,7 @@ import OfflineBanner from "./components/OfflineBanner";
 import { ToastProvider, useToast } from "./components/ToastContext";
 import Toast from "./components/Toast";
 import { apiService } from "./services/api";
-import { apiFetch, isAdmin } from "./services/http";
+import { apiFetch, currentPlayerId, isAdmin, setCurrentPlayerId } from "./services/http";
 
 // All four view components are code-split so only the chunk for the active
 // view is downloaded on initial load.
@@ -77,12 +77,15 @@ function AppContent() {
     currentWeek: 1,
     isActive: true,
   });
-  const [currentUser, setCurrentUser] = useState<User | null>(() => {
-    const remembered = localStorage.getItem("playerId");
-    const seeded = initialSnapshot?.users ?? [];
-    return seeded.find((u) => u.id === remembered) ?? seeded[0] ?? null;
-  });
   const admin = isAdmin();
+  const [currentUser, setCurrentUser] = useState<User | null>(() => {
+    const remembered = currentPlayerId();
+    const seeded = initialSnapshot?.users ?? [];
+    const mine = seeded.find((u) => u.id === remembered) ?? null;
+    // Falling back to the first player is how a stranger used to arrive as
+    // somebody. Only the admin, who can switch on purpose, gets a default.
+    return mine ?? (isAdmin() ? seeded[0] ?? null : null);
+  });
   const [activeView, setActiveView] = useState<ActiveView>(
     () => {
       // A view name saved by an older build must not leave the page blank.
@@ -117,6 +120,16 @@ function AppContent() {
     localStorage.setItem("activeView", activeView);
   }, [activeView]);
 
+  // Nothing to look at until somebody joins, so land the admin where the work
+  // is — once. After that they navigate freely, including to the rules.
+  useEffect(() => {
+    if (!admin || landedRef.current) return;
+    if (hasLoaded && users.length === 0) {
+      landedRef.current = true;
+      setActiveView("admin");
+    }
+  }, [admin, hasLoaded, users.length]);
+
   // One clock for the whole app: the week the server is scoring against.
   useEffect(() => {
     apiFetch(`/settings`)
@@ -130,6 +143,8 @@ function AppContent() {
   }, []);
 
   const recalcTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Sends the admin to Admin once on an empty season, never again. */
+  const landedRef = useRef(false);
 
   /**
    * Derived state (price level, fines) is computed by the server from
@@ -169,8 +184,9 @@ function AppContent() {
       setWorkoutDays(dbWorkouts);
       setGoals(dbGoals);
       setCurrentUser((prev) => {
-        const remembered = prev?.id ?? localStorage.getItem("playerId");
-        return dbUsers.find((u) => u.id === remembered) ?? dbUsers[0] ?? null;
+        const remembered = prev?.id ?? currentPlayerId();
+        const mine = dbUsers.find((u) => u.id === remembered) ?? null;
+        return mine ?? (isAdmin() ? dbUsers[0] ?? null : null);
       });
 
       writeSnapshot({
@@ -432,21 +448,51 @@ function AppContent() {
   // the first one. The admin goes straight to Admin; everyone else is told to
   // wait for them.
   const emptySeason = hasLoaded && users.length === 0;
+  // Players exist, but this device has not been told which one it is. It can
+  // read the group and the rules; logging belongs to whoever holds the link.
+  const unlinked = hasLoaded && users.length > 0 && !currentUser;
 
-  if (!currentUser && emptySeason && !admin) {
+  // First run on a device: say who you are, once. It is the only place a name
+  // can be chosen — after this the header shows it and nothing switches it, so
+  // nobody logs a workout into somebody else's week by brushing a dropdown.
+  if (unlinked) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center p-6">
-        <div className="text-center max-w-sm">
-          <h1 className="display text-4xl mb-2">No season yet</h1>
-          <p className="text-ink-muted">
-            Nobody has been added. Whoever runs the season adds the players first.
+        <div className="w-full max-w-sm">
+          <h1 className="display text-4xl">Who are you?</h1>
+          <p className="text-sm text-ink-muted mt-1 mb-5">
+            Tap your name. This device remembers it, and everything you log is yours.
+          </p>
+          <ul className="divide-y divide-line border-y border-line">
+            {[...users]
+              .sort((a, b) => a.name.localeCompare(b.name))
+              .map((u) => (
+                <li key={u.id}>
+                  <button
+                    onClick={() => {
+                      setCurrentPlayerId(u.id);
+                      setCurrentUser(u);
+                    }}
+                    className="w-full text-left py-3 min-h-[44px] flex items-center gap-3 cursor-pointer
+                               hover:bg-paper-sunk transition-colors duration-150 ease-settle px-2 rounded-lg"
+                  >
+                    <span className="w-9 h-9 rounded-full bg-clean-100 text-clean-700 grid place-items-center">
+                      {u.avatar || u.name.charAt(0)}
+                    </span>
+                    <span className="font-semibold text-ink">{u.name}</span>
+                  </button>
+                </li>
+              ))}
+          </ul>
+          <p className="text-xs text-ink-faint mt-4">
+            Picked the wrong one? Whoever runs the season can put it right.
           </p>
         </div>
       </div>
     );
   }
 
-  if (!currentUser && !(emptySeason && admin)) {
+  if (!currentUser && !emptySeason) {
     return (
       <div className="min-h-screen bg-paper flex items-center justify-center">
         <div className="text-center">
@@ -475,7 +521,7 @@ function AppContent() {
         />
       ) : null}
       <Header
-        activeView={emptySeason && admin ? "admin" : activeView}
+        activeView={activeView}
         onViewChange={setActiveView}
         isAdmin={admin}
         users={users}
@@ -483,7 +529,7 @@ function AppContent() {
         onChangePlayer={(id) => {
           const next = users.find((u) => u.id === id) ?? null;
           if (next) {
-            localStorage.setItem("playerId", next.id);
+            setCurrentPlayerId(next.id);
             setCurrentUser(next);
           }
         }}
@@ -498,7 +544,7 @@ function AppContent() {
               </div>
             }
           >
-            {!emptySeason && activeView === "me" && (
+            {!emptySeason && !unlinked && activeView === "me" && (
               <MeView
                 currentUser={currentUser}
                 users={users}
@@ -513,9 +559,20 @@ function AppContent() {
 
             {!emptySeason && activeView === "group" && <GroupBoard currentUser={currentUser} goals={goals} />}
 
-            {!emptySeason && activeView === "rules" && <Rules />}
+            {activeView === "rules" && <Rules />}
 
-            {(activeView === "admin" || emptySeason) && admin && (
+            {emptySeason && (activeView === "me" || activeView === "group") ? (
+              <div className="py-16 text-center">
+                <h2 className="display text-3xl">Nobody has joined yet</h2>
+                <p className="text-sm text-ink-muted mt-2">
+                  {admin
+                    ? "Add the players in Admin and this fills up."
+                    : "Whoever runs the season adds the players first."}
+                </p>
+              </div>
+            ) : null}
+
+            {activeView === "admin" && admin && (
               <Admin
                 users={users}
                 workoutDays={workoutDays}

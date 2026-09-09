@@ -75,6 +75,7 @@ const runSeason = ({
   userId,
   workoutDays,
   settledWeeks = [],
+  settledAmounts = {},
   completedWeeks,
   fromWeek = 1,
 }) => {
@@ -98,10 +99,13 @@ const runSeason = ({
       cleanWeeks++;
       cleanStreak++;
       weeks.push({ week, outcome: 'clean', credits, priceLevel, fine: 0 });
-      if (cleanStreak === WEEKS_TO_MOVE && priceLevel > 1) {
-        priceLevel = priceLevel - 1;
-        cleanStreak = 0;
+      // Every WEEKS_TO_MOVE clean weeks in a row wipes the strikes standing
+      // against you, and drops the price a rung if you are above the bottom
+      // one. Forgiveness has to work at level 1 too, or a player who strings
+      // ten clean weeks between two misses is punished for the streak.
+      if (cleanStreak % WEEKS_TO_MOVE === 0) {
         missesAtLevel = 0;
+        if (priceLevel > 1) priceLevel = priceLevel - 1;
       }
     } else {
       const fine = fineAtLevel(priceLevel);
@@ -110,7 +114,10 @@ const runSeason = ({
       // A fine is settled week by week. Paying the newest one does not clear the
       // ones behind it — the balance is the sum of what is still unpaid, not a
       // running total that any single payment wipes.
-      if (settledWeeks.includes(week)) paid += fine;
+      // What was actually paid is what was recorded at the time. Replaying
+      // history must not rewrite somebody's receipt — the derived fine is only
+      // the fallback for rows written before the amount was stored.
+      if (settledWeeks.includes(week)) paid += settledAmounts[week] ?? fine;
       else outstanding += fine;
       weeks.push({ week, outcome: 'missed', credits, priceLevel, fine });
 
