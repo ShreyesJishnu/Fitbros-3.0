@@ -78,7 +78,15 @@ const DAY_LABEL: Record<WorkoutKind, string> = { session: "a workout", steps: "1
  */
 export const todayIndex = (date: Date = new Date()): number => (date.getDay() + 6) % 7;
 
-/** The week so far, day by day. Reads as a claim, not a clock: a day can be filled in late. */
+/**
+ * The week so far, day by day. Reads as a claim, not a clock: a day can be
+ * filled in late.
+ *
+ * Today's ring is drawn inset. Monday sits flush against the left edge of a
+ * section that clips its overflow, so an outside ring — Tailwind's default —
+ * loses its left side on every row, and its offset paints the page colour
+ * rather than whatever the row is sitting on.
+ */
 const DayStrip: React.FC<{ row: GroupRow }> = ({ row }) => {
   const today = todayIndex();
   return (
@@ -91,7 +99,7 @@ const DayStrip: React.FC<{ row: GroupRow }> = ({ row }) => {
           aria-label={`${DAY_NAMES[i]}: ${kind ? DAY_LABEL[kind] : "nothing logged"}`}
           className={`h-6 flex-1 rounded-md border ${
             kind ? DAY_STYLE[kind] : "bg-paper-card border-line"
-          } ${i === today ? "ring-2 ring-ink ring-offset-1 ring-offset-paper" : ""}`}
+          } ${i === today ? "ring-2 ring-inset ring-ink" : ""}`}
         />
       ))}
     </div>
