@@ -143,4 +143,26 @@ const MIGRATIONS = [
   "ALTER TABLE fines ADD COLUMN voided_reason TEXT",
 ];
 
-module.exports = { DDL, INDEXES, MIGRATIONS };
+/**
+ * The questions a cold start asks to decide whether this database is current.
+ *
+ * Tables existing is not the same as tables being up to date: a probe that only
+ * looks for `admin_settings` passes on a database that shipped before the last
+ * ALTER, and the boot then skips the migration that would have added it. That
+ * is how production came to answer `/api/seasons` with "no such column:
+ * settled_amount" while looking perfectly healthy.
+ *
+ * So the probe names every column MIGRATIONS adds, one statement per table.
+ * SQLite resolves column names when it prepares the statement, so LIMIT 0
+ * throws on a missing column even against an empty table. Derived from
+ * MIGRATIONS rather than written out, so a new ALTER is checked for free.
+ */
+const COLUMN_PROBES = Object.entries(
+  MIGRATIONS.reduce((byTable, sql) => {
+    const [, table, column] = sql.match(/ALTER TABLE (\w+) ADD COLUMN (\w+)/);
+    (byTable[table] ||= []).push(column);
+    return byTable;
+  }, {})
+).map(([table, columns]) => `SELECT ${columns.join(", ")} FROM ${table} LIMIT 0`);
+
+module.exports = { DDL, INDEXES, MIGRATIONS, COLUMN_PROBES };

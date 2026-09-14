@@ -5,11 +5,13 @@
  * before a deployment. They ran their own copies of this once, and drifted —
  * the script was missing three tables and a column by the time anyone noticed.
  *
- * `schemaIsReady` is the cheap question a serverless boot asks. Answering it
- * costs one statement; answering it wrong costs thirty-two, every cold start.
+ * `schemaIsReady` is the question a serverless boot asks before doing the work.
+ * It has to be cheap — a wrong "no" costs thirty-two statements every cold
+ * start — but a wrong "yes" is worse: it leaves a live database a migration
+ * behind, which is how production came to 500 on a column it never got.
  */
 const db = require("./db");
-const { DDL, INDEXES, MIGRATIONS } = require("./schema");
+const { DDL, INDEXES, MIGRATIONS, COLUMN_PROBES } = require("./schema");
 const engine = require("../src/utils/seasonEngine");
 
 const SEASON_WEEKS_MS = engine.SEASON_WEEKS * 7 * 24 * 60 * 60 * 1000;
@@ -26,14 +28,18 @@ async function runBatch(sql) {
 }
 
 /**
- * Are the tables there and is there a season to report?
+ * Are the tables there, up to date, and is there a season to report?
  *
- * Both in one statement: the query throws if the table is missing, and returns
- * nothing if the season row was never written.
+ * All three, cheaply: the first query throws if the table is missing and
+ * returns nothing if the season row was never written, and each probe throws
+ * if a column a migration adds is not there yet. Asking only the first one is
+ * what let a live database sit a migration behind — see COLUMN_PROBES.
  */
 async function schemaIsReady() {
   try {
-    return Boolean(await db.get("SELECT id FROM admin_settings WHERE id = 1"));
+    if (!(await db.get("SELECT id FROM admin_settings WHERE id = 1"))) return false;
+    for (const probe of COLUMN_PROBES) await db.get(probe);
+    return true;
   } catch {
     return false;
   }

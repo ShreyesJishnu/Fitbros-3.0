@@ -7,7 +7,8 @@
     "start": "NODE_ENV=production node server.js",
     "dev": "nodemon server.js",
     "init-db": "node scripts/safeInitDatabase.js",
-    "verify": "node scripts/verifyRules.js"
+    "verify": "node scripts/verifyRules.js",
+    "check-schema": "node scripts/checkSchema.js"
   },
   "dependencies": {
     "@libsql/client": "^0.14.0",
