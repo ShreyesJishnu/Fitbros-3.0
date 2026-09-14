@@ -18,6 +18,9 @@ const DDL = `
     -- stated by the engine. Kept so an existing database is untouched.
     cutoff_hour INTEGER NOT NULL DEFAULT 0,
     week_end_day INTEGER NOT NULL DEFAULT 7,
+    -- Stamped when the app boots with a claimed name. The only way to tell
+    -- "has not trained" apart from "has never opened the app".
+    last_seen_at TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -141,6 +144,7 @@ const MIGRATIONS = [
   "ALTER TABLE goals ADD COLUMN unit TEXT",
   "ALTER TABLE fines ADD COLUMN voided_at TEXT",
   "ALTER TABLE fines ADD COLUMN voided_reason TEXT",
+  "ALTER TABLE users ADD COLUMN last_seen_at TEXT",
 ];
 
 /**

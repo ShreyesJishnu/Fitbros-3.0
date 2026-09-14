@@ -130,6 +130,15 @@ function AppContent() {
     }
   }, [admin, hasLoaded, users.length]);
 
+  // "I am here", once a name has been claimed. Not a login — it only tells the
+  // group screen that this person has the app, which is what separates a blank
+  // week from someone who never got in. Nothing depends on it, so it is sent
+  // and forgotten.
+  useEffect(() => {
+    if (!currentPlayerId()) return;
+    apiFetch(`/seen`, { method: "POST" }).catch(() => {});
+  }, [currentUser?.id]);
+
   // One clock for the whole app: the week the server is scoring against.
   useEffect(() => {
     apiFetch(`/settings`)

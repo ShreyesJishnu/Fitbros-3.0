@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Share2, Trophy } from "lucide-react";
-import { Goal, User } from "../types";
+import { Goal, User, WorkoutKind } from "../types";
 import Feed from "./Feed";
 import PlayerSheet from "./PlayerSheet";
 import GroupStats from "./GroupStats";
@@ -17,7 +17,7 @@ import { SEASON_WEEKS } from "../utils/seasonEngine";
  */
 
 
-interface GroupRow {
+export interface GroupRow {
   userId: string;
   name: string;
   currentWeek: number;
@@ -31,6 +31,10 @@ interface GroupRow {
   potEligible: boolean;
   weeks: { week: number; outcome: "clean" | "missed"; credits: number; fine: number }[];
   currentWeekProgress: { week: number; credits: number; needed: number };
+  /** The running week, Monday first. null is a day with nothing logged. */
+  days: (WorkoutKind | null)[];
+  /** When they last opened the app. null means they never have. */
+  lastSeenAt: string | null;
 }
 
 interface GroupBoardProps {
@@ -48,6 +52,71 @@ const OUTCOME_STYLE = {
   clean: "bg-clean-500",
   missed: "bg-owed-500",
 } as const;
+
+const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
+const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+
+/**
+ * The same two fills My season uses for a logged day, so a session means the
+ * same thing on both screens.
+ */
+const DAY_STYLE: Record<WorkoutKind, string> = {
+  session: "bg-clean-500 border-clean-500",
+  // A bare block has no label to lean on the way My season's buttons do, so the
+  // half a workout is carried by a heavier edge, not by the fill alone.
+  steps: "bg-clean-100 border-2 border-clean-500",
+};
+
+const DAY_LABEL: Record<WorkoutKind, string> = { session: "a workout", steps: "10k steps" };
+
+/**
+ * Today, from the device — Monday is 1.
+ *
+ * The server does not answer this. It holds no timezone, and the engine refuses
+ * to derive the week from a date; the phone reading the screen is already in
+ * the right place.
+ */
+export const todayIndex = (date: Date = new Date()): number => (date.getDay() + 6) % 7;
+
+/** The week so far, day by day. Reads as a claim, not a clock: a day can be filled in late. */
+const DayStrip: React.FC<{ row: GroupRow }> = ({ row }) => {
+  const today = todayIndex();
+  return (
+    <div className="flex gap-1" role="list" aria-label={`${row.name}, this week`}>
+      {row.days.map((kind, i) => (
+        <div
+          key={i}
+          role="listitem"
+          title={`${DAY_NAMES[i]}: ${kind ? DAY_LABEL[kind] : "nothing logged"}`}
+          aria-label={`${DAY_NAMES[i]}: ${kind ? DAY_LABEL[kind] : "nothing logged"}`}
+          className={`h-6 flex-1 rounded-md border ${
+            kind ? DAY_STYLE[kind] : "bg-paper-card border-line"
+          } ${i === today ? "ring-2 ring-ink ring-offset-1 ring-offset-paper" : ""}`}
+        />
+      ))}
+    </div>
+  );
+};
+
+/**
+ * What the group actually wants to know, in words — colour alone never says it.
+ * A player who has never opened the app is told apart from one who simply has
+ * not trained, because the two need different conversations.
+ */
+/**
+ * Anything logged, ever. A season that predates last_seen_at still proves the
+ * person has the app — claiming otherwise would accuse the most diligent
+ * players first, since they are the ones with a history.
+ */
+const hasBeenHere = (row: GroupRow): boolean =>
+  Boolean(row.lastSeenAt) || row.days.some(Boolean) || row.weeks.some((w) => w.credits > 0);
+
+export const todayLine = (row: GroupRow): { text: string; tone: string } => {
+  if (!hasBeenHere(row)) return { text: "never opened the app", tone: "text-ink-muted" };
+  const kind = row.days[todayIndex()];
+  if (!kind) return { text: "not yet today", tone: "text-owed-600" };
+  return { text: kind === "steps" ? "10k steps today" : "trained today", tone: "text-clean-600" };
+};
 
 const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
   const [rows, setRows] = useState<GroupRow[]>([]);
@@ -130,6 +199,8 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
   }
 
   const potCount = rows.filter((r) => r.potEligible).length;
+  const trainedToday = rows.filter((r) => r.days[todayIndex()]).length;
+  const neverOpened = rows.filter((r) => !hasBeenHere(r));
   const owed = rows.reduce((sum, r) => sum + r.outstanding, 0);
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
 
@@ -180,16 +251,45 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
             </dd>
           </div>
           <div className="py-4 pr-4 sm:px-4 border-b border-line">
-            <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">Fined weeks</dt>
-            <dd className="display text-3xl mt-1 tnum text-ink">
-              {rows.reduce((sum, r) => sum + r.missedWeeks, 0)}
+            <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">
+              Trained today
+            </dt>
+            <dd className="display text-3xl mt-1 tnum text-clean-600">
+              {trainedToday}
+              <span className="text-ink-muted">/{rows.length}</span>
             </dd>
           </div>
         </dl>
+
+        {/* Only while it is still true. Once everyone is in, it stops existing. */}
+        {neverOpened.length ? (
+          <div className="mt-4 border border-owed-100 bg-owed-50 rounded-xl px-4 py-3">
+            <p className="text-sm text-owed-700 font-semibold">
+              {neverOpened.length} {neverOpened.length === 1 ? "has" : "have"} never opened the app
+            </p>
+            <p className="text-xs text-ink-muted mt-1">
+              {neverOpened.map((r) => r.name).join(", ")} — send them the link
+            </p>
+          </div>
+        ) : null}
       </header>
 
       <section className="overflow-hidden">
         {/* A six-column table cannot survive 375px, so the phone gets rows. */}
+        {/* One key for ten strips. Repeating it per row is noise. */}
+        <div className="md:hidden flex gap-1 pb-1.5" aria-hidden="true">
+          {DAYS.map((d, i) => (
+            <span
+              key={i}
+              className={`flex-1 text-center text-[10px] uppercase tracking-[0.06em] ${
+                i === todayIndex() ? "text-ink font-semibold" : "text-ink-faint"
+              }`}
+            >
+              {d}
+            </span>
+          ))}
+        </div>
+
         <ul className="md:hidden divide-y divide-line border-t border-line">
           {ranked.map((r) => {
             const isMe = r.userId === currentUser?.id;
@@ -209,22 +309,31 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                       </span>
                     ) : null}
                   </div>
-                  <span
-                    className={`tnum font-semibold shrink-0 ${r.outstanding ? "text-owed-600" : "text-clean-600"}`}
-                  >
-                    {r.outstanding ? rupees(r.outstanding) : "settled"}
+                  <span className="flex items-baseline gap-2 shrink-0">
+                    <span className={`text-xs ${todayLine(r).tone}`}>{todayLine(r).text}</span>
+                    {r.outstanding ? (
+                      <span className="tnum font-semibold text-owed-600">{rupees(r.outstanding)}</span>
+                    ) : null}
                   </span>
                 </div>
 
-                <div className="flex gap-0.5 mt-2.5" aria-label={`${r.cleanWeeks} clean weeks`}>
-                  {r.weeks.map((w) => (
-                    <div key={w.week} className={`h-3 flex-1 rounded-sm ${OUTCOME_STYLE[w.outcome]}`} />
-                  ))}
-                  <div className="h-3 flex-1 rounded-sm border border-dashed border-ink-faint" />
+                <div className="mt-2.5">
+                  <DayStrip row={r} />
                 </div>
 
+                {/* Nothing to show before a week has closed. */}
+                {r.weeks.length ? (
+                  <div className="flex gap-0.5 mt-1.5" aria-label={`${r.cleanWeeks} clean weeks`}>
+                    {r.weeks.map((w) => (
+                      <div key={w.week} className={`h-2 flex-1 rounded-sm ${OUTCOME_STYLE[w.outcome]}`} />
+                    ))}
+                    <div className="h-2 flex-1 rounded-sm border border-dashed border-ink-faint" />
+                  </div>
+                ) : null}
+
                 <p className="text-xs text-ink-muted mt-2 tnum">
-                  {r.cleanWeeks} clean · {rupees(r.fineIfMissed)} a miss · {rupees(r.paid)} paid
+                  {credit(r.currentWeekProgress.credits)} of {r.currentWeekProgress.needed} this
+                  week · {r.cleanWeeks} clean · {rupees(r.fineIfMissed)} a miss
                 </p>
                 </button>
               </li>
@@ -237,7 +346,8 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
             <thead>
               <tr className="border-b border-line text-left">
                 <th className="py-3 px-4 font-semibold text-ink">Player</th>
-                <th className="py-3 px-4 font-semibold text-ink w-[30%]">Season</th>
+                <th className="py-3 px-4 font-semibold text-ink w-[22%]">This week</th>
+                <th className="py-3 px-4 font-semibold text-ink w-[22%]">Season</th>
                 <th className="py-3 px-3 font-semibold text-ink text-right">Clean</th>
                 <th className="py-3 px-3 font-semibold text-ink text-right">A miss</th>
                 <th className="py-3 px-3 font-semibold text-ink text-right">Paid</th>
@@ -269,6 +379,11 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                       <p className="text-xs text-ink-muted mt-0.5 tnum">
                         {r.cleanStreak} week streak · {r.missedWeeks} fined
                       </p>
+                    </td>
+
+                    <td className="py-3 px-4">
+                      <DayStrip row={r} />
+                      <p className={`text-xs mt-1 ${todayLine(r).tone}`}>{todayLine(r).text}</p>
                     </td>
 
                     <td className="py-3 px-4">

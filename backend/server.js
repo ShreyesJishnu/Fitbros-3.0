@@ -1680,6 +1680,20 @@ function seasonView(user, { state, currentWeek, workoutRows }, unsettled) {
     outstanding: state.outstanding,
     potEligible: state.potEligible,
     weeks: state.weeks,
+    // Whether this person has ever opened the app, which is the only thing that
+    // tells an empty week apart from someone who never got in.
+    lastSeenAt: user.last_seen_at ?? null,
+    // The week still running, day by day, so the group can see who trained
+    // today without opening anybody's season. Monday is 1.
+    days: Array.from({ length: 7 }, (_, i) => {
+      const row = workoutRows.find(
+        (r) =>
+          Number(r.week) === currentWeek &&
+          Number(r.day_of_week) === i + 1 &&
+          Boolean(r.is_completed)
+      );
+      return row ? row.kind || "session" : null;
+    }),
     // Not scored yet — the week is still running.
     currentWeekProgress: {
       week: currentWeek,
@@ -1718,7 +1732,7 @@ const groupByUser = (rows) => {
 app.get("/api/seasons", async (req, res) => {
   try {
     const [users, workoutRows, fineRows, settings] = await Promise.all([
-      db.all("SELECT id, name, start_date FROM users ORDER BY name COLLATE NOCASE ASC"),
+      db.all("SELECT id, name, start_date, last_seen_at FROM users ORDER BY name COLLATE NOCASE ASC"),
       db.all("SELECT user_id, week, day_of_week, is_completed, kind FROM workout_days"),
       db.all(
         `SELECT user_id, id, week, amount, settled_at, settled_amount, issued_at, due_at
@@ -1764,10 +1778,39 @@ app.get("/api/seasons", async (req, res) => {
   }
 });
 
+/**
+ * "I am here." The app posts this once on boot, after a name has been claimed.
+ *
+ * Not a login and not a session — there are neither. It records that a person
+ * has the app open on some device, which is the only way the group can tell
+ * "hasn't trained yet" apart from "never got in". Nothing reads it but the
+ * group screen, so a failure is ignored by the caller.
+ */
+app.post("/api/seen", async (req, res) => {
+  try {
+    const actor = actorOf(req);
+    if (!actor) {
+      res.status(401).json({ error: "Say who you are: send an x-player-id header" });
+      return;
+    }
+    const result = await db.run("UPDATE users SET last_seen_at = ? WHERE id = ?", [
+      new Date().toISOString(),
+      actor,
+    ]);
+    if (!result.changes) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Full derived state for one player: what a miss costs, what they owe, where they stand.
 app.get("/api/season/:userId", async (req, res) => {
   try {
-    const user = await db.get("SELECT id, name FROM users WHERE id = ?", [req.params.userId]);
+    const user = await db.get("SELECT id, name, last_seen_at FROM users WHERE id = ?", [req.params.userId]);
     if (!user) {
       res.status(404).json({ error: "User not found" });
       return;
