@@ -1454,6 +1454,17 @@ app.post("/api/goals/:id/progress", async (req, res) => {
 
 // ==================== GROUP FEED ====================
 
+/** Monday is 1, the way the season counts days. */
+const DAY_NAMES = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
 /**
  * What has happened in the season, newest first.
  *
@@ -1463,7 +1474,7 @@ app.post("/api/goals/:id/progress", async (req, res) => {
 app.get("/api/feed", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 40, 100);
-    const [users, fines, goals, progress] = await Promise.all([
+    const [users, fines, goals, progress, workouts] = await Promise.all([
       db.all("SELECT id, name, avatar FROM users"),
       db.all("SELECT user_id, week, amount, price_level, issued_at, settled_at FROM fines WHERE voided_at IS NULL"),
       db.all("SELECT id, user_id, description, completed_date FROM goals WHERE is_completed = 1"),
@@ -1471,6 +1482,15 @@ app.get("/api/feed", async (req, res) => {
         `SELECT p.user_id, p.value, p.recorded_at, g.description, g.unit, g.baseline_value, g.target_value
          FROM goal_progress p JOIN goals g ON g.id = p.goal_id
          ORDER BY p.recorded_at DESC LIMIT 60`
+      ),
+      // The busiest table in the season by far, so it is cut in SQL rather than
+      // loaded whole and thrown away after the sort. Cut below the feed's own
+      // limit on purpose: twelve people training four times is fifty entries a
+      // week, and left uncapped a quiet week of workouts would push every fine
+      // and payment off the end of the only place they are listed as events.
+      db.all(
+        `SELECT user_id, week, day_of_week, kind, timestamp FROM workout_days
+         WHERE is_completed = 1 ORDER BY timestamp DESC LIMIT 25`
       ),
     ]);
 
@@ -1521,6 +1541,25 @@ app.get("/api/feed", async (req, res) => {
         at: p.recorded_at,
         text: `logged ${p.value}${p.unit ? ` ${p.unit}` : ""} on "${p.description}"`,
         progress: fraction,
+      });
+    }
+
+    for (const w of workouts) {
+      // A row outside Monday-Sunday is bad data, not a day: better no
+      // entry at all than a feed line reading "trained on undefined".
+      const day = DAY_NAMES[Number(w.day_of_week) - 1];
+      if (!day) continue;
+      events.push({
+        kind: "workout",
+        userId: w.user_id,
+        name: nameOf.get(w.user_id),
+        at: w.timestamp,
+        // The week is named because the day alone is not unique: two Tuesdays
+        // from two weeks read as the same line repeated, which looks like a bug.
+        text:
+          (w.kind || "session") === "steps"
+            ? `walked 10k on ${day}, week ${w.week}`
+            : `trained on ${day}, week ${w.week}`,
       });
     }
 

@@ -1,16 +1,20 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { IndianRupee, LucideIcon, Target, TrendingUp, Wallet } from "lucide-react";
+import { Dumbbell, IndianRupee, LucideIcon, Target, TrendingUp, Wallet } from "lucide-react";
 import { apiFetch } from "../services/http";
 
 /**
  * What has happened in the season, newest first.
  *
- * The server assembles this from the records themselves — fines, payments,
- * goals — so the feed can't claim something the data doesn't support.
+ * The server assembles this from the records themselves — workouts, fines,
+ * payments, goals — so the feed can't claim something the data doesn't support.
+ *
+ * Ordered by when it happened, nothing weighted. Workouts are the commonest
+ * thing in a season, so they will usually be most of what is here; money is the
+ * rarer event and stays visible on the day it lands.
  */
 
 
-type Kind = "fine" | "payment" | "goal" | "progress";
+type Kind = "fine" | "payment" | "goal" | "progress" | "workout";
 
 interface FeedEvent {
   kind: Kind;
@@ -27,6 +31,7 @@ const ICON: Record<Kind, LucideIcon> = {
   payment: Wallet,
   goal: Target,
   progress: TrendingUp,
+  workout: Dumbbell,
 };
 
 const TONE: Record<Kind, string> = {
@@ -34,6 +39,7 @@ const TONE: Record<Kind, string> = {
   payment: "text-clean-600",
   goal: "text-clean-600",
   progress: "text-ink-muted",
+  workout: "text-clean-600",
 };
 
 /** "3 days ago" beats a timestamp nobody converts in their head. */
@@ -79,7 +85,7 @@ const Feed: React.FC<{ currentUserId?: string }> = ({ currentUserId }) => {
       <div className="py-10 text-center">
         <p className="font-semibold text-ink">Nothing has happened yet</p>
         <p className="text-sm text-ink-muted mt-1">
-          Fines, payments and completed goals all show up here.
+          Workouts, fines, payments and completed goals all show up here.
         </p>
       </div>
     );
