@@ -52,7 +52,7 @@ export const ALL_RULES: Rule[] = [
       "A session — anything you would call training — is 1",
       "A 10k-step day is ½, so two make a workout",
       "A day is logged once, so a week can't be walked clean",
-      "5 a week is clean, however you get there"],
+      "4 a week is clean, however you get there"],
     table: [],
     ties: ["r7"],
   },

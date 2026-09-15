@@ -14,8 +14,8 @@
  * Types are in seasonEngine.d.ts.
  */
 
-/** A clean week is 5 workouts' worth of credit. Flat for everyone, every week. */
-const WORKOUTS_PER_WEEK = 5;
+/** A clean week is 4 workouts' worth of credit. Flat for everyone, every week. */
+const WORKOUTS_PER_WEEK = 4;
 
 /**
  * What a logged day is worth.
@@ -23,6 +23,10 @@ const WORKOUTS_PER_WEEK = 5;
  * A session is a workout. 10k steps is half of one, so two step days make a
  * workout — and since a day can only be logged once, seven step days come to
  * 3.5 and no week can be walked clean.
+ *
+ * That last line is what puts a floor under WORKOUTS_PER_WEEK: at 4 a full week
+ * of walking is still half a workout short, at 3 it would clear the bar. The
+ * threshold cannot go below 4 without walking becoming enough on its own.
  */
 const CREDIT_BY_KIND = { session: 1, steps: 0.5 };
 const DEFAULT_KIND = 'session';

@@ -36,8 +36,9 @@ confirmation, or he asks for options (give 2–4 ranked with trade-offs).
 A 24-week fitness accountability season for a group of friends, with real money
 attached. The rules are the product; the app only reports what the rules decide.
 
-- **A clean week is 5 workouts' worth of credit.** A session is 1, a 10k-step day
-  is ½. A day logs once, so a week can never be walked clean (7 × ½ = 3.5).
+- **A clean week is 4 workouts' worth of credit.** A session is 1, a 10k-step day
+  is ½. A day logs once, so a week can never be walked clean (7 × ½ = 3.5) —
+  which is also why 4 is the floor: at 3, walking alone would clear it.
 - **A missed week costs money** — ₹200 to start. Two misses at one price double
   it (₹200, ₹400, ₹800, ₹1,600 …, no ceiling); two clean weeks in a row halve it.
 - **Nothing takes you out of the season.** No suspension, no elimination. A fine

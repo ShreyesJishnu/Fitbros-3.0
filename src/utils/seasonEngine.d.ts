@@ -55,7 +55,7 @@ export interface SeasonInput {
 }
 
 /** A clean week is 5 workouts' worth of credit. Flat for everyone, every week. */
-export const WORKOUTS_PER_WEEK: 5;
+export const WORKOUTS_PER_WEEK: 4;
 /** What a logged day is worth: a session 1, 10k steps a half. */
 export const CREDIT_BY_KIND: Record<WorkoutKind, number>;
 /** The season is 24 weeks long. Nothing can be logged outside it. */

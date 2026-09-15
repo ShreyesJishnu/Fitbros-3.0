@@ -9,7 +9,7 @@ attached. The rules are the product; the app only reports what the rules decide.
 
 ### Rules
 
-- **A clean week is 5 workouts.** Flat, for everyone.
+- **A clean week is 4 workouts.** Flat, for everyone.
 - **A missed week costs money** — ₹500 → ₹1,000 → ₹2,000. Three misses at one price raise it; three clean weeks lower it.
 - **Missing never eliminates you. Not paying does.** Active → Suspended (unpaid past 48h) → Out (two fines while suspended). No buy-backs.
 - **Skip tokens:** 3 a season, never 3 in a row, never in the last two weeks.

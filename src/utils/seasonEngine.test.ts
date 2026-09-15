@@ -10,8 +10,8 @@ import { WorkoutDay } from '../types';
 /**
  * Build workout rows from a per-week entry.
  *
- * A number is that many sessions: [5, 3] = week 1 clean, week 2 missed.
- * A pair is [sessions, stepDays]: [3, 4] in week 1 is 3 + 4×½ = 5 credits.
+ * A number is that many sessions: [4, 3] = week 1 clean, week 2 missed.
+ * A pair is [sessions, stepDays]: [2, 4] in week 1 is 2 + 4×½ = 4 credits.
  */
 type WeekEntry = number | [number, number];
 
@@ -55,41 +55,46 @@ const season = (
 const paidUp = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
 
 describe('what makes a week clean', () => {
-  test('5 workouts is clean, 4 is not', () => {
-    expect(season([5]).weeks[0].outcome).toBe('clean');
-    expect(season([4]).weeks[0].outcome).toBe('missed');
+  test('4 workouts is clean, 3 is not', () => {
+    expect(season([4]).weeks[0].outcome).toBe('clean');
+    expect(season([3]).weeks[0].outcome).toBe('missed');
   });
 
-  test('more than 5 is still just clean', () => {
+  test('more than 4 is still just clean', () => {
     expect(season([7]).weeks[0].outcome).toBe('clean');
     expect(season([7]).missedWeeks).toBe(0);
   });
 
   test('the threshold is the same for everyone, every week', () => {
-    expect(WORKOUTS_PER_WEEK).toBe(5);
+    expect(WORKOUTS_PER_WEEK).toBe(4);
   });
 
   test('10k steps is half a workout, so two step days make one', () => {
-    expect(season([[4, 2]]).weeks[0].credits).toBe(5);
-    expect(season([[4, 2]]).weeks[0].outcome).toBe('clean');
-    expect(season([[4, 1]]).weeks[0].credits).toBe(4.5);
-    expect(season([[4, 1]]).weeks[0].outcome).toBe('missed');
+    expect(season([[3, 2]]).weeks[0].credits).toBe(4);
+    expect(season([[3, 2]]).weeks[0].outcome).toBe('clean');
+    expect(season([[3, 1]]).weeks[0].credits).toBe(3.5);
+    expect(season([[3, 1]]).weeks[0].outcome).toBe('missed');
   });
 
+  /**
+   * The reason the threshold cannot drop to 3. Seven step days is the most a
+   * week of pure walking can ever be worth, and it has to stay short of clean.
+   */
   test('a week cannot be walked clean — seven step days is 3.5', () => {
     expect(season([[0, 7]]).weeks[0].credits).toBe(3.5);
     expect(season([[0, 7]]).weeks[0].outcome).toBe('missed');
+    expect(3.5).toBeLessThan(WORKOUTS_PER_WEEK);
   });
 
   test('a row logged before steps existed still counts as a session', () => {
-    const legacy = workouts('u1', [5]).map(({ kind, ...rest }) => rest as WorkoutDay);
+    const legacy = workouts('u1', [4]).map(({ kind, ...rest }) => rest as WorkoutDay);
     const s = runSeason({ userId: 'u1', workoutDays: legacy, completedWeeks: 1 });
-    expect(s.weeks[0].credits).toBe(5);
+    expect(s.weeks[0].credits).toBe(4);
     expect(s.weeks[0].outcome).toBe('clean');
   });
 
   test('a week is only ever clean or missed', () => {
-    const s = season([5, 0, [4, 2], [0, 7]]);
+    const s = season([4, 0, [3, 2], [0, 7]]);
     expect(s.weeks.map((w) => w.outcome)).toEqual(['clean', 'missed', 'clean', 'missed']);
   });
 });

@@ -28,7 +28,7 @@ const { PAYMENT_GRACE_HOURS } = engine;
 
 const WEEKS_PLAYED = 10;
 const CLEAN = 5; // a clean week
-const MISS = 2; // short of the 5 needed
+const MISS = 2; // short of a clean week, whatever the threshold is
 /** [sessions, stepDays] — 3 sessions and 4 walks is 3 + 2 = 5 credits, still clean. */
 const WALKED = [3, 4];
 

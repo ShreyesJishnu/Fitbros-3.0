@@ -21,7 +21,7 @@ describe("the weekly nudge", () => {
   });
 
   test("warns when every remaining day is needed", () => {
-    expect(nudge(2, 3)).toBe("skip");
+    expect(nudge(1, 3)).toBe("skip");
   });
 
   test("escalates when the week can no longer be saved", () => {
@@ -29,16 +29,17 @@ describe("the weekly nudge", () => {
   });
 
   test("congratulates a clean week", () => {
-    expect(nudge(5, 1)).toBe("clean");
+    // Exactly the threshold is clean — the boundary, not one past it.
+    expect(nudge(WORKOUTS_PER_WEEK, 1)).toBe("clean");
     expect(nudge(7, 0)).toBe("clean");
   });
 
   test("money owed outranks anything about workouts", () => {
-    expect(nudge(5, 4, 500)).toBe("owed");
+    expect(nudge(WORKOUTS_PER_WEEK, 4, 500)).toBe("owed");
   });
 
   test("money owed outranks the week — nobody is ever silenced now", () => {
     expect(nudge(0, 1, 1500)).toBe("owed");
-    expect(nudge(5, 1, 1500)).toBe("owed");
+    expect(nudge(WORKOUTS_PER_WEEK, 1, 1500)).toBe("owed");
   });
 });
