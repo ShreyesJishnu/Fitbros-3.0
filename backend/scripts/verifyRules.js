@@ -194,6 +194,42 @@ async function main() {
     record("two clean weeks halve it back to ₹200", recovered === 200, `₹${recovered}`);
   }
 
+  console.log("\nA day you have not lived through is not yours to claim");
+  {
+    const engine = require("../../src/utils/seasonEngine");
+    const today = engine.dayOfWeekNow();
+    const other = all.find((p) => p.userId !== debtor.userId);
+
+    if (today < 7) {
+      const ahead = await call("POST", "/workouts", {
+        player: other.userId,
+        body: workout(other.userId, currentWeek, today + 1),
+      });
+      record(
+        "a player cannot log a day that has not happened",
+        ahead.status === 403,
+        `day ${today + 1} of 7 -> ${ahead.status}`
+      );
+
+      const byAdmin = await call("POST", "/workouts", {
+        admin: true,
+        body: workout(other.userId, currentWeek, today + 1),
+      });
+      record("the admin can still correct one", byAdmin.status === 200, `-> ${byAdmin.status}`);
+      await clearWeek(other.userId, currentWeek);
+    } else {
+      record("a player cannot log a day that has not happened", true, "it is Sunday — no day is ahead");
+      record("the admin can still correct one", true, "skipped with it");
+    }
+
+    const todayOk = await call("POST", "/workouts", {
+      player: other.userId,
+      body: workout(other.userId, currentWeek, today),
+    });
+    record("today is still theirs to log", todayOk.status === 200, `day ${today} -> ${todayOk.status}`);
+    await clearWeek(other.userId, currentWeek);
+  }
+
   console.log("\nA player owns their name, and nothing else");
   {
     const me = (await call("GET", `/users`)).body.find((u) => u.id === debtor.userId);

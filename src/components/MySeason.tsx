@@ -348,6 +348,10 @@ const MySeason: React.FC<MySeasonProps> = ({
                 {DAYS.map((label, i) => {
                   const dow = i + 1;
                   const isToday = i === todayIndex();
+                  // A day you have not lived through is not yours to claim. The
+                  // server refuses it either way; this stops the tap being a
+                  // surprise, and stops the whole week being tappable at once.
+                  const isFuture = i > todayIndex();
                   const row = workoutDays.find(
                     (w) =>
                       w.userId === me.userId &&
@@ -361,9 +365,12 @@ const MySeason: React.FC<MySeasonProps> = ({
                     <button
                       key={label}
                       onClick={() => cycleDay(dow)}
+                      disabled={isFuture}
                       aria-pressed={Boolean(kind)}
                       aria-label={`${label}${isToday ? ", today" : ""}: ${
-                        kind === "session"
+                        isFuture
+                          ? "hasn't happened yet"
+                          : kind === "session"
                           ? "workout logged, tap for 10k steps"
                           : kind === "steps"
                             ? "10k steps logged — half a workout, tap to clear"

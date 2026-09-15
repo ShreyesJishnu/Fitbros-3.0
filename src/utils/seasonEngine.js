@@ -35,6 +35,30 @@ const DEFAULT_KIND = 'session';
 const SEASON_WEEKS = 24;
 
 /**
+ * The clock the season runs on. One zone for everyone, so a day starts and ends
+ * at the same moment for the whole group however far anybody has travelled.
+ */
+const SEASON_TIME_ZONE = "Asia/Kolkata";
+
+const DAY_NUMBER = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
+
+/**
+ * Which day of the season's week it is right now — Monday is 1.
+ *
+ * This is not the ban on deriving the week from a date. The week is the
+ * admin's to set and is read from admin_settings; this answers only which day
+ * inside that week has arrived, which is the difference between logging a
+ * workout and claiming one you have not done yet.
+ *
+ * Intl does the zone conversion, so there is no date library and no arithmetic
+ * on offsets to get wrong twice a year.
+ */
+function dayOfWeekNow(now = new Date(), timeZone = SEASON_TIME_ZONE) {
+  const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(now);
+  return DAY_NUMBER[weekday];
+}
+
+/**
  * One clock for everyone: the week runs Monday to Monday, and a day rolls over
  * at midnight.
  *
@@ -231,6 +255,8 @@ module.exports = {
   WORKOUTS_PER_WEEK,
   CREDIT_BY_KIND,
   SEASON_WEEKS,
+  SEASON_TIME_ZONE,
+  dayOfWeekNow,
   WEEK_ENDS_ON,
   DAY_ROLLS_OVER_AT,
   FINE_BASE,

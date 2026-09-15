@@ -4,6 +4,7 @@ import {
   fineAtLevel,
   FINE_BASE,
   WORKOUTS_PER_WEEK,
+  dayOfWeekNow,
 } from './seasonEngine';
 import { WorkoutDay } from '../types';
 
@@ -53,6 +54,25 @@ const season = (
 
 /** Settle every week, so payment behaviour stays out of ladder tests. */
 const paidUp = (n: number) => Array.from({ length: n }, (_, i) => i + 1);
+
+describe("the season's clock", () => {
+  /**
+   * Instants are given in UTC on purpose: a test that writes a bare local time
+   * passes or fails depending on the machine it runs on, which is the same
+   * class of bug this clock exists to stop.
+   */
+  test('Monday is 1 and Sunday is 7', () => {
+    expect(dayOfWeekNow(new Date('2026-09-14T06:00:00Z'))).toBe(1);
+    expect(dayOfWeekNow(new Date('2026-09-20T06:00:00Z'))).toBe(7);
+  });
+
+  test('the day turns over at midnight in the season, not in UTC', () => {
+    // 18:25Z is 23:55 in Kolkata — still Monday there.
+    expect(dayOfWeekNow(new Date('2026-09-14T18:25:00Z'))).toBe(1);
+    // Ten minutes later it is 00:05 on Tuesday, though UTC still says Monday.
+    expect(dayOfWeekNow(new Date('2026-09-14T18:35:00Z'))).toBe(2);
+  });
+});
 
 describe('what makes a week clean', () => {
   test('4 workouts is clean, 3 is not', () => {

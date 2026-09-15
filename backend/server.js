@@ -204,6 +204,17 @@ function denyUnlessOwner(req, res, ownerId) {
  * be able to correct a genuine mistake, may write into one.
  * Callers pass the current week they already read; nobody pays a second round trip.
  */
+/** Monday is 1, the way the season counts days. */
+const DAY_NAMES = [
+  "Monday",
+  "Tuesday",
+  "Wednesday",
+  "Thursday",
+  "Friday",
+  "Saturday",
+  "Sunday",
+];
+
 function denyUnlessWeekOpen(req, res, weekNum, currentWeek) {
   if (weekNum >= currentWeek || isAdminRequest(req)) return false;
   res.status(403).json({
@@ -717,6 +728,21 @@ app.post("/api/workouts", async (req, res) => {
       return;
     }
     if (denyUnlessWeekOpen(req, res, weekNum, currentWeek)) return;
+
+    // Nor a day inside this week that has not arrived yet. Blocking future
+    // weeks was never enough: the whole of the running week was tappable on a
+    // Monday, which is four credits and a clean week for training nobody did.
+    // The admin is exempt, the way they are for a closed week — somebody has to
+    // be able to put a genuine mistake right.
+    if (weekNum === currentWeek && !isAdminRequest(req)) {
+      const today = engine.dayOfWeekNow();
+      if (dayNum > today) {
+        res.status(403).json({
+          error: `${DAY_NAMES[dayNum - 1]} hasn't happened yet — today is ${DAY_NAMES[today - 1]}.`,
+        });
+        return;
+      }
+    }
 
     const existingRow = await db.get(
       `SELECT id FROM workout_days WHERE user_id = ? AND week = ? AND day_of_week = ?`,
@@ -1453,17 +1479,6 @@ app.post("/api/goals/:id/progress", async (req, res) => {
 });
 
 // ==================== GROUP FEED ====================
-
-/** Monday is 1, the way the season counts days. */
-const DAY_NAMES = [
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-  "Sunday",
-];
 
 /**
  * What has happened in the season, newest first.
