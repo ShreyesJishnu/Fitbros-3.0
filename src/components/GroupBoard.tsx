@@ -20,6 +20,8 @@ import { SEASON_WEEKS } from "../utils/seasonEngine";
 export interface GroupRow {
   userId: string;
   name: string;
+  /** Theirs to set, on the Me tab. Falls back to the first letter of the name. */
+  avatar: string | null;
   currentWeek: number;
   fineIfMissed: number;
   cleanWeeks: number;
@@ -310,6 +312,9 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                 >
                 <div className="flex items-baseline justify-between gap-3">
                   <div className="flex items-center gap-2 min-w-0">
+                    <span aria-hidden="true" className="shrink-0">
+                      {r.avatar || r.name.charAt(0).toUpperCase()}
+                    </span>
                     <span className="font-semibold text-ink truncate">{r.name}</span>
                     {isMe ? (
                       <span className="text-[10px] font-semibold uppercase tracking-[0.08em] bg-clean-100 text-clean-700 px-1.5 py-0.5 rounded shrink-0">
@@ -374,6 +379,7 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                   >
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-2 flex-wrap">
+                        <span aria-hidden="true">{r.avatar || r.name.charAt(0).toUpperCase()}</span>
                         <span className="font-semibold text-ink">{r.name}</span>
                         {isMe ? (
                           <span className="text-[10px] font-semibold uppercase tracking-[0.08em] bg-clean-100 text-clean-700 px-1.5 py-0.5 rounded">

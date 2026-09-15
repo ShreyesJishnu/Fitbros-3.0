@@ -175,9 +175,12 @@ const MySeason: React.FC<MySeasonProps> = ({
     }
   }, []);
 
+  // Reload when the person changes, and when their name does: this screen holds
+  // its own copy of the season, so a rename on the card above it would otherwise
+  // sit next to the old name until the tab was left and come back to.
   useEffect(() => {
     load();
-  }, [load]);
+  }, [load, currentUser?.id, currentUser?.name, currentUser?.avatar]);
 
   const me = useMemo(
     () => players.find((p) => p.userId === currentUser?.id) ?? null,

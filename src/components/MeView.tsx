@@ -1,6 +1,7 @@
 import React from "react";
 import { Goal, User, WorkoutDay } from "../types";
 import MySeason from "./MySeason";
+import WhoYouAre from "./WhoYouAre";
 import GoalBoard from "./GoalBoard";
 
 /**
@@ -18,6 +19,7 @@ interface MeViewProps {
   onAddGoal: (goal: Goal) => void;
   onUpdateGoal: (goal: Goal) => void;
   onDeleteGoal: (goalId: string) => void;
+  onUpdateUser: (user: User) => void | Promise<void>;
 }
 
 const MeView: React.FC<MeViewProps> = ({
@@ -29,15 +31,18 @@ const MeView: React.FC<MeViewProps> = ({
   onAddGoal,
   onUpdateGoal,
   onDeleteGoal,
+  onUpdateUser,
 }) => (
-  <div className="divide-y divide-line">
+  <div>
+    <WhoYouAre currentUser={currentUser} onUpdateUser={onUpdateUser} />
+
     <MySeason
       currentUser={currentUser}
       workoutDays={workoutDays}
       onUpdateWorkoutDay={onUpdateWorkoutDay}
     />
 
-    <div className="pt-10 mt-10">
+    <div className="pt-10 mt-10 border-t border-line">
       <GoalBoard
         currentUser={currentUser}
         user={currentUser}

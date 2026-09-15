@@ -10,6 +10,7 @@ const row = (over: Partial<GroupRow>): GroupRow =>
   ({
     userId: "u",
     name: "Ancil",
+    avatar: null,
     days: [null, null, null, null, null, null, null],
     weeks: [],
     lastSeenAt: "2026-09-14T10:00:00.000Z",

@@ -375,8 +375,17 @@ app.post("/api/users", async (req, res) => {
   }
 });
 
+/**
+ * A player owns their name and their emoji. Nothing else.
+ *
+ * Standing, price level and the week counts are replayed from the workout
+ * sheet, so a player sending one is either confused or trying it on; either way
+ * it is refused out loud rather than dropped quietly, because a silently
+ * ignored money field is the kind of thing nobody notices until it matters.
+ * The admin still edits anyone, and with no ADMIN_KEY set — local work — the
+ * route stays open, the same bargain every other admin route makes.
+ */
 app.put("/api/users/:id", async (req, res) => {
-  if (denyUnlessAdmin(req, res)) return;
   const {
     name,
     avatar,
@@ -384,6 +393,16 @@ app.put("/api/users/:id", async (req, res) => {
     cleanWeeks,
     missedWeeks,
   } = req.body;
+
+  if (!isAdminRequest(req) && process.env.ADMIN_KEY) {
+    if (denyUnlessOwner(req, res, req.params.id)) return;
+    if (priceLevel !== undefined || cleanWeeks !== undefined || missedWeeks !== undefined) {
+      res.status(403).json({
+        error: "Your name and emoji are yours. The rest the season works out for itself.",
+      });
+      return;
+    }
+  }
 
   const nameError = validateString(name, "Name", 1, 100);
   if (nameError) {
@@ -1668,6 +1687,7 @@ function seasonView(user, { state, currentWeek, workoutRows }, unsettled) {
   return {
     userId: user.id,
     name: user.name,
+    avatar: user.avatar || null,
     currentWeek,
     priceLevel: state.priceLevel,
     fineIfMissed: engine.currentFine(state),
@@ -1732,7 +1752,7 @@ const groupByUser = (rows) => {
 app.get("/api/seasons", async (req, res) => {
   try {
     const [users, workoutRows, fineRows, settings] = await Promise.all([
-      db.all("SELECT id, name, start_date, last_seen_at FROM users ORDER BY name COLLATE NOCASE ASC"),
+      db.all("SELECT id, name, avatar, start_date, last_seen_at FROM users ORDER BY name COLLATE NOCASE ASC"),
       db.all("SELECT user_id, week, day_of_week, is_completed, kind FROM workout_days"),
       db.all(
         `SELECT user_id, id, week, amount, settled_at, settled_amount, issued_at, due_at
@@ -1810,7 +1830,7 @@ app.post("/api/seen", async (req, res) => {
 // Full derived state for one player: what a miss costs, what they owe, where they stand.
 app.get("/api/season/:userId", async (req, res) => {
   try {
-    const user = await db.get("SELECT id, name, last_seen_at FROM users WHERE id = ?", [req.params.userId]);
+    const user = await db.get("SELECT id, name, avatar, last_seen_at FROM users WHERE id = ?", [req.params.userId]);
     if (!user) {
       res.status(404).json({ error: "User not found" });
       return;

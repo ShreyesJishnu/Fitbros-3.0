@@ -194,6 +194,49 @@ async function main() {
     record("two clean weeks halve it back to ₹200", recovered === 200, `₹${recovered}`);
   }
 
+  console.log("\nA player owns their name, and nothing else");
+  {
+    const me = (await call("GET", `/users`)).body.find((u) => u.id === debtor.userId);
+    // Their own baseline, read here: the payment section above has already
+    // moved what they owe since owedBefore was taken.
+    const owedNow = (await season(debtor.userId)).outstanding;
+    const rename = await call("PUT", `/users/${debtor.userId}`, {
+      player: debtor.userId,
+      body: { name: "Renamed By Themselves", avatar: "🏋️" },
+    });
+    record("a player can rename themselves", rename.status === 200, `-> ${rename.status}`);
+
+    const other = all.find((p) => p.userId !== debtor.userId);
+    const cross = await call("PUT", `/users/${other.userId}`, {
+      player: debtor.userId,
+      body: { name: "Renamed By Someone Else" },
+    });
+    record("a player cannot rename anybody else", cross.status === 403, `-> ${cross.status}`);
+
+    const money = await call("PUT", `/users/${debtor.userId}`, {
+      player: debtor.userId,
+      body: { name: "Renamed By Themselves", priceLevel: 1, cleanWeeks: 24 },
+    });
+    record(
+      "a player cannot type their own standing",
+      money.status === 403,
+      `-> ${money.status}`
+    );
+
+    const after = await season(debtor.userId);
+    record(
+      "renaming changes nothing about what they owe",
+      after.outstanding === owedNow,
+      `owes ₹${after.outstanding}`
+    );
+
+    // Put the name back so the season is as it was found.
+    await call("PUT", `/users/${debtor.userId}`, {
+      admin: true,
+      body: { name: me.name, avatar: me.avatar },
+    });
+  }
+
   console.log("\nThe guards that were already there");
   {
     const other = all.find((p) => p.userId !== debtor.userId);

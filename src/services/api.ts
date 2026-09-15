@@ -108,10 +108,19 @@ class ApiService {
     });
   }
 
+  /**
+   * Only what a person actually owns.
+   *
+   * Callers pass a whole User because that is what they hold, but standing,
+   * price level and the week counts are replayed from the workout sheet — the
+   * server derives them and refuses them from a player. Sending them back was
+   * how the Me tab's own rename tripped that guard with a 403.
+   */
   async updateUser(id: string, userData: Partial<User>): Promise<User> {
+    const { name, avatar } = userData;
     return this.fetchApi<User>(`/users/${id}`, {
       method: 'PUT',
-      body: JSON.stringify(userData),
+      body: JSON.stringify({ name, avatar }),
     });
   }
 

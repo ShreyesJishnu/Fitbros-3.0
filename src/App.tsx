@@ -563,6 +563,7 @@ function AppContent() {
                 onAddGoal={addGoal}
                 onUpdateGoal={updateGoal}
                 onDeleteGoal={deleteGoal}
+                onUpdateUser={updateUser}
               />
             )}
 
