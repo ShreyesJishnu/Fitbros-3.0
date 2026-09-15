@@ -10,6 +10,15 @@ import GoalBoard from "./GoalBoard";
  * check the same season.
  */
 
+/**
+ * One player gets a greeting of his own, every time he opens the app.
+ *
+ * Keyed on the id, not the name: a player can rename themselves now, so a name
+ * check would stop working the moment he did.
+ */
+const ANCIL = "16baf191-0270-4a58-9cbc-9d513e4c47c1";
+const ANCIL_GREETING = "Fuck you, Ancil.";
+
 interface MeViewProps {
   currentUser: User | null;
   users: User[];
@@ -34,6 +43,12 @@ const MeView: React.FC<MeViewProps> = ({
   onUpdateUser,
 }) => (
   <div>
+    {currentUser?.id === ANCIL ? (
+      <p className="mb-5 rounded-xl border border-owed-100 bg-owed-50 px-4 py-3 text-sm font-semibold text-owed-700">
+        {ANCIL_GREETING}
+      </p>
+    ) : null}
+
     <WhoYouAre currentUser={currentUser} onUpdateUser={onUpdateUser} />
 
     <MySeason
