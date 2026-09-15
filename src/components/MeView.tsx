@@ -15,7 +15,7 @@ interface MeViewProps {
   users: User[];
   goals: Goal[];
   workoutDays: WorkoutDay[];
-  onUpdateWorkoutDay: (day: WorkoutDay) => void;
+  onUpdateWorkoutDay: (day: WorkoutDay) => Promise<boolean>;
   onAddGoal: (goal: Goal) => void;
   onUpdateGoal: (goal: Goal) => void;
   onDeleteGoal: (goalId: string) => void;

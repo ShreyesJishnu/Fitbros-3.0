@@ -9,6 +9,8 @@ import {
 } from "lucide-react";
 import { User, WorkoutDay, WorkoutKind } from "../types";
 import { apiFetch, isAdmin } from "../services/http";
+import { todayIndex } from "../utils/today";
+import { useToast } from "./ToastContext";
 import {
   CREDIT_BY_KIND,
   PAYMENT_GRACE_HOURS,
@@ -64,7 +66,7 @@ interface SeasonView {
 interface MySeasonProps {
   currentUser: User | null;
   workoutDays: WorkoutDay[];
-  onUpdateWorkoutDay: (day: WorkoutDay) => void;
+  onUpdateWorkoutDay: (day: WorkoutDay) => Promise<boolean>;
 }
 
 const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
@@ -160,6 +162,7 @@ const MySeason: React.FC<MySeasonProps> = ({
   const [notice, setNotice] = useState<string | null>(null);
   // Recording a payment is the admin's job — the server refuses it from anyone else.
   const admin = isAdmin();
+  const { showToast } = useToast();
 
   const load = useCallback(async () => {
     try {
@@ -208,7 +211,7 @@ const MySeason: React.FC<MySeasonProps> = ({
    * Walk a day round the cycle: nothing → a session → 10k steps → nothing.
    * Your sheet only, and only the running week.
    */
-  const cycleDay = (dayOfWeek: number) => {
+  const cycleDay = async (dayOfWeek: number) => {
     if (!currentUser || !me) return;
     const week = me.currentWeekProgress.week;
     const existing = workoutDays.find(
@@ -217,7 +220,7 @@ const MySeason: React.FC<MySeasonProps> = ({
     const current = existing?.isCompleted ? existing.kind ?? "session" : "none";
     const next = NEXT_KIND[current];
 
-    onUpdateWorkoutDay({
+    const saved = await onUpdateWorkoutDay({
       id: existing?.id || `workout-${currentUser.id}-${week}-${dayOfWeek}-${Date.now()}`,
       userId: currentUser.id,
       week,
@@ -230,6 +233,17 @@ const MySeason: React.FC<MySeasonProps> = ({
       markedBy: "user",
       timestamp: new Date().toISOString(),
     });
+
+    // Only on the way in, and only once the server has it. Clearing a day is a
+    // correction, not an achievement; and cheering a write that never landed —
+    // offline, or refused — put "Good job!" on screen beside the error saying
+    // nothing had been saved.
+    if (next && saved) {
+      showToast(
+        `${currentUser.name} ${next === "steps" ? "walked it" : "done"}! Good job!`,
+        "success"
+      );
+    }
 
     // The server re-derives fines from the sheet.
     setTimeout(load, 400);
@@ -333,6 +347,7 @@ const MySeason: React.FC<MySeasonProps> = ({
               <div className="grid grid-cols-7 gap-1.5">
                 {DAYS.map((label, i) => {
                   const dow = i + 1;
+                  const isToday = i === todayIndex();
                   const row = workoutDays.find(
                     (w) =>
                       w.userId === me.userId &&
@@ -347,15 +362,19 @@ const MySeason: React.FC<MySeasonProps> = ({
                       key={label}
                       onClick={() => cycleDay(dow)}
                       aria-pressed={Boolean(kind)}
-                      aria-label={`${label}: ${
+                      aria-label={`${label}${isToday ? ", today" : ""}: ${
                         kind === "session"
                           ? "workout logged, tap for 10k steps"
                           : kind === "steps"
                             ? "10k steps logged — half a workout, tap to clear"
                             : "nothing logged, tap for a workout"
                       }`}
+                      /* Today is ringed inside the button: these sit in a grid
+                         whose first and last columns are flush with the page,
+                         where an outside ring loses an edge. */
                       className={`min-h-[56px] rounded-xl border text-xs font-semibold cursor-pointer
                         transition-colors duration-150 ease-settle disabled:opacity-40 disabled:cursor-not-allowed
+                        ${isToday ? "ring-2 ring-inset ring-ink" : ""}
                         ${
                           kind === "session"
                             ? "bg-clean-500 border-clean-500 text-paper"
@@ -364,7 +383,7 @@ const MySeason: React.FC<MySeasonProps> = ({
                               : "bg-paper-card border-line text-ink-muted hover:border-clean-500 hover:text-clean-600"
                         }`}
                     >
-                      <span className="block">{label}</span>
+                      <span className={`block ${isToday && !kind ? "text-ink" : ""}`}>{label}</span>
                       {kind === "session" ? (
                         <Check size={14} className="mx-auto mt-1" aria-hidden="true" />
                       ) : kind === "steps" ? (

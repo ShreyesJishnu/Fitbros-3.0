@@ -1,4 +1,5 @@
-import { GroupRow, todayIndex, todayLine } from "./GroupBoard";
+import { GroupRow, todayLine } from "./GroupBoard";
+import { todayIndex } from "../utils/today";
 
 /**
  * Two things decide what the group reads on a row, and both are easy to get
@@ -23,6 +24,20 @@ describe("todayIndex", () => {
     expect(todayIndex(new Date("2026-09-14T12:00:00"))).toBe(0);
     expect(todayIndex(new Date("2026-09-17T12:00:00"))).toBe(3);
     expect(todayIndex(new Date("2026-09-20T12:00:00"))).toBe(6);
+  });
+});
+
+describe("a row that arrives without the new fields", () => {
+  it("does not take the screen down", () => {
+    // What a fresh bundle sees for the minute an old API is still serving.
+    const stale = { ...row({}), days: undefined, avatar: undefined } as unknown as GroupRow;
+    const normalised = {
+      ...stale,
+      days: Array.isArray(stale.days) ? stale.days : Array(7).fill(null),
+      avatar: stale.avatar ?? null,
+    };
+    expect(() => todayLine(normalised)).not.toThrow();
+    expect(normalised.days).toHaveLength(7);
   });
 });
 

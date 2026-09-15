@@ -7,6 +7,7 @@ import GroupStats from "./GroupStats";
 import { shareCard } from "../utils/shareCard";
 import { apiFetch } from "../services/http";
 import { SEASON_WEEKS } from "../utils/seasonEngine";
+import { todayIndex } from "../utils/today";
 
 /**
  * The group, at group scale: who is where, what the season has cost everyone,
@@ -72,15 +73,6 @@ const DAY_STYLE: Record<WorkoutKind, string> = {
 const DAY_LABEL: Record<WorkoutKind, string> = { session: "a workout", steps: "10k steps" };
 
 /**
- * Today, from the device — Monday is 1.
- *
- * The server does not answer this. It holds no timezone, and the engine refuses
- * to derive the week from a date; the phone reading the screen is already in
- * the right place.
- */
-export const todayIndex = (date: Date = new Date()): number => (date.getDay() + 6) % 7;
-
-/**
  * The week so far, day by day. Reads as a claim, not a clock: a day can be
  * filled in late.
  *
@@ -141,7 +133,16 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
       const res = await apiFetch(`/seasons`);
       if (!res.ok) throw new Error(`Could not load players (${res.status})`);
       const seasons = await res.json();
-      setRows(seasons);
+      // During a deploy a fresh bundle can reach an API that has not rolled
+      // over yet, and one missing field would take the whole screen down —
+      // r.days.map on undefined. A row is normalised on the way in instead.
+      setRows(
+        (Array.isArray(seasons) ? seasons : []).map((r: GroupRow) => ({
+          ...r,
+          days: Array.isArray(r.days) ? r.days : Array(7).fill(null),
+          avatar: r.avatar ?? null,
+        }))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -441,7 +442,7 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
 
       <section className="pt-2">
         <h3 className="display text-2xl mb-1">Lately</h3>
-        <p className="text-sm text-ink-muted mb-3">Fines, payments and goals as they land.</p>
+        <p className="text-sm text-ink-muted mb-3">Workouts, fines and goals as they land.</p>
         <Feed currentUserId={currentUser?.id} />
       </section>
     </div>

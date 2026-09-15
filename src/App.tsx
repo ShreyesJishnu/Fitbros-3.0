@@ -386,8 +386,9 @@ function AppContent() {
     }
   };
 
-  const updateWorkoutDay = async (workoutDay: WorkoutDay) => {
-    if (blockIfOffline()) return;
+  /** Returns whether the day actually reached the server — callers cheer on true. */
+  const updateWorkoutDay = async (workoutDay: WorkoutDay): Promise<boolean> => {
+    if (blockIfOffline()) return false;
     try {
       const savedWorkout = await apiService.saveWorkout(workoutDay);
 
@@ -406,9 +407,11 @@ function AppContent() {
       });
 
       recalculateUserConsistency();
+      return true;
     } catch (error) {
       console.error("Error saving workout to database:", error);
       showToast("Failed to save workout data. Please try again.", "error");
+      return false;
     }
   };
 
