@@ -194,7 +194,7 @@ async function main() {
     record("two clean weeks halve it back to ₹200", recovered === 200, `₹${recovered}`);
   }
 
-  console.log("\nA day you have not lived through is not yours to claim");
+  console.log("\nA player can commit to a day later this week");
   {
     const engine = require("../../src/utils/seasonEngine");
     const today = engine.dayOfWeekNow();
@@ -205,29 +205,17 @@ async function main() {
         player: other.userId,
         body: workout(other.userId, currentWeek, today + 1),
       });
-      record(
-        "a player cannot log a day that has not happened",
-        ahead.status === 403,
-        `day ${today + 1} of 7 -> ${ahead.status}`
-      );
-
-      const byAdmin = await call("POST", "/workouts", {
-        admin: true,
-        body: workout(other.userId, currentWeek, today + 1),
-      });
-      record("the admin can still correct one", byAdmin.status === 200, `-> ${byAdmin.status}`);
+      record("a day ahead can be planned", ahead.status === 200, `day ${today + 1} of 7 -> ${ahead.status}`);
       await clearWeek(other.userId, currentWeek);
     } else {
-      record("a player cannot log a day that has not happened", true, "it is Sunday — no day is ahead");
-      record("the admin can still correct one", true, "skipped with it");
+      record("a day ahead can be planned", true, "it is Sunday — no day is ahead");
     }
 
-    const todayOk = await call("POST", "/workouts", {
+    const beyond = await call("POST", "/workouts", {
       player: other.userId,
-      body: workout(other.userId, currentWeek, today),
+      body: workout(other.userId, currentWeek + 1, 1),
     });
-    record("today is still theirs to log", todayOk.status === 200, `day ${today} -> ${todayOk.status}`);
-    await clearWeek(other.userId, currentWeek);
+    record("a week that has not started still cannot", beyond.status === 400, `-> ${beyond.status}`);
   }
 
   console.log("\nA player owns their name, and nothing else");

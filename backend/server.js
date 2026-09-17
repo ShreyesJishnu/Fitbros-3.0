@@ -729,20 +729,9 @@ app.post("/api/workouts", async (req, res) => {
     }
     if (denyUnlessWeekOpen(req, res, weekNum, currentWeek)) return;
 
-    // Nor a day inside this week that has not arrived yet. Blocking future
-    // weeks was never enough: the whole of the running week was tappable on a
-    // Monday, which is four credits and a clean week for training nobody did.
-    // The admin is exempt, the way they are for a closed week — somebody has to
-    // be able to put a genuine mistake right.
-    if (weekNum === currentWeek && !isAdminRequest(req)) {
-      const today = engine.dayOfWeekNow();
-      if (dayNum > today) {
-        res.status(403).json({
-          error: `${DAY_NAMES[dayNum - 1]} hasn't happened yet — today is ${DAY_NAMES[today - 1]}.`,
-        });
-        return;
-      }
-    }
+    // A day later this week is allowed on purpose: the group uses it to commit
+    // to the days they plan to train. A planned day that never happened is the
+    // admin's to clear before the week closes — the group's call, not a gap.
 
     const existingRow = await db.get(
       `SELECT id FROM workout_days WHERE user_id = ? AND week = ? AND day_of_week = ?`,
@@ -1489,7 +1478,7 @@ app.post("/api/goals/:id/progress", async (req, res) => {
 app.get("/api/feed", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 40, 100);
-    const [users, fines, goals, progress, workouts] = await Promise.all([
+    const [users, fines, goals, progress, workouts, settings] = await Promise.all([
       db.all("SELECT id, name, avatar FROM users"),
       db.all("SELECT user_id, week, amount, price_level, issued_at, settled_at FROM fines WHERE voided_at IS NULL"),
       db.all("SELECT id, user_id, description, completed_date FROM goals WHERE is_completed = 1"),
@@ -1507,7 +1496,10 @@ app.get("/api/feed", async (req, res) => {
         `SELECT user_id, week, day_of_week, kind, timestamp FROM workout_days
          WHERE is_completed = 1 ORDER BY timestamp DESC LIMIT 25`
       ),
+      db.get("SELECT current_week FROM admin_settings WHERE id = 1"),
     ]);
+    const currentWeek = settings ? Number(settings.current_week) : 1;
+    const today = engine.dayOfWeekNow();
 
     const nameOf = new Map(users.map((u) => [u.id, u.name]));
     const events = [];
@@ -1571,10 +1563,14 @@ app.get("/api/feed", async (req, res) => {
         at: w.timestamp,
         // The week is named because the day alone is not unique: two Tuesdays
         // from two weeks read as the same line repeated, which looks like a bug.
+        // A day later this week is a plan. Saying "trained" would have the feed
+        // claim something the records do not support yet.
         text:
-          (w.kind || "session") === "steps"
-            ? `walked 10k on ${day}, week ${w.week}`
-            : `trained on ${day}, week ${w.week}`,
+          Number(w.week) === currentWeek && Number(w.day_of_week) > today
+            ? `plans to ${(w.kind || "session") === "steps" ? "walk 10k" : "train"} on ${day}`
+            : (w.kind || "session") === "steps"
+              ? `walked 10k on ${day}, week ${w.week}`
+              : `trained on ${day}, week ${w.week}`,
       });
     }
 

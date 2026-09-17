@@ -239,8 +239,13 @@ const MySeason: React.FC<MySeasonProps> = ({
     // offline, or refused — put "Good job!" on screen beside the error saying
     // nothing had been saved.
     if (next && saved) {
+      // A day ahead is a plan, not a result — cheering it as done would be the
+      // app claiming training that has not happened.
+      const planned = dayOfWeek > todayIndex() + 1;
       showToast(
-        `${currentUser.name} ${next === "steps" ? "walked it" : "done"}! Good job!`,
+        planned
+          ? `${currentUser.name} is down for ${DAYS[dayOfWeek - 1]}. Hold yourself to it.`
+          : `${currentUser.name} ${next === "steps" ? "walked it" : "done"}! Good job!`,
         "success"
       );
     }
@@ -348,9 +353,8 @@ const MySeason: React.FC<MySeasonProps> = ({
                 {DAYS.map((label, i) => {
                   const dow = i + 1;
                   const isToday = i === todayIndex();
-                  // A day you have not lived through is not yours to claim. The
-                  // server refuses it either way; this stops the tap being a
-                  // surprise, and stops the whole week being tappable at once.
+                  // Days ahead are tappable: planning the week is how the group
+                  // uses them. They are only worded as plans, not as done.
                   const isFuture = i > todayIndex();
                   const row = workoutDays.find(
                     (w) =>
@@ -365,12 +369,9 @@ const MySeason: React.FC<MySeasonProps> = ({
                     <button
                       key={label}
                       onClick={() => cycleDay(dow)}
-                      disabled={isFuture}
                       aria-pressed={Boolean(kind)}
-                      aria-label={`${label}${isToday ? ", today" : ""}: ${
-                        isFuture
-                          ? "hasn't happened yet"
-                          : kind === "session"
+                      aria-label={`${label}${isToday ? ", today" : isFuture ? ", ahead" : ""}: ${
+                        kind === "session"
                           ? "workout logged, tap for 10k steps"
                           : kind === "steps"
                             ? "10k steps logged — half a workout, tap to clear"
