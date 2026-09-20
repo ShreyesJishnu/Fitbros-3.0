@@ -53,6 +53,31 @@ const DAY_NUMBER = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
  * Intl does the zone conversion, so there is no date library and no arithmetic
  * on offsets to get wrong twice a year.
  */
+/** The season's calendar date, as YYYY-MM-DD in its own zone. */
+const seasonDate = (now = new Date(), timeZone = SEASON_TIME_ZONE) =>
+  new Intl.DateTimeFormat("en-CA", { timeZone }).format(now);
+
+/**
+ * Which week the calendar is in — for the scheduler, and nothing else.
+ *
+ * This is NOT the season's current week. That is stored in admin_settings and
+ * read from there by every screen and every fine, because a week derived
+ * independently by each reader is the bug that has been fixed twice. This
+ * answers a different question, asked by one caller: has the stored week
+ * fallen behind the calendar, so the job that closes weeks should run?
+ *
+ * Whole weeks since the start date, so the first seven days are week 1. Both
+ * dates are reduced to a calendar day in the season's zone first, which is why
+ * an hour's difference either side of midnight cannot move the answer.
+ */
+function seasonWeekOn(startDate, now = new Date(), timeZone = SEASON_TIME_ZONE) {
+  if (!startDate) return 1;
+  const day = (iso) => Date.parse(`${iso}T00:00:00Z`);
+  const days = Math.round((day(seasonDate(now, timeZone)) - day(startDate)) / 86400000);
+  if (!Number.isFinite(days)) return 1;
+  return Math.min(SEASON_WEEKS, Math.max(1, Math.floor(days / 7) + 1));
+}
+
 function dayOfWeekNow(now = new Date(), timeZone = SEASON_TIME_ZONE) {
   const weekday = new Intl.DateTimeFormat("en-US", { timeZone, weekday: "short" }).format(now);
   return DAY_NUMBER[weekday];
@@ -257,6 +282,7 @@ module.exports = {
   SEASON_WEEKS,
   SEASON_TIME_ZONE,
   dayOfWeekNow,
+  seasonWeekOn,
   WEEK_ENDS_ON,
   DAY_ROLLS_OVER_AT,
   FINE_BASE,

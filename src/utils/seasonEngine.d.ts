@@ -59,6 +59,8 @@ export const WORKOUTS_PER_WEEK: 4;
 export const SEASON_TIME_ZONE: string;
 /** Which day of the season's week it is now, Monday = 1. */
 export function dayOfWeekNow(now?: Date, timeZone?: string): number;
+/** Which week the calendar is in. For the scheduler only — reads use admin_settings. */
+export function seasonWeekOn(startDate: string, now?: Date, timeZone?: string): number;
 /** What a logged day is worth: a session 1, 10k steps a half. */
 export const CREDIT_BY_KIND: Record<WorkoutKind, number>;
 /** The season is 24 weeks long. Nothing can be logged outside it. */

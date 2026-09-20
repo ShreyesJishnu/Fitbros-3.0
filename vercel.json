@@ -31,5 +31,11 @@
         }
       ]
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/advance-week",
+      "schedule": "0 19 * * *"
+    }
   ]
 }

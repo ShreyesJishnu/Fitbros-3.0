@@ -5,6 +5,8 @@ import {
   FINE_BASE,
   WORKOUTS_PER_WEEK,
   dayOfWeekNow,
+  seasonWeekOn,
+  SEASON_WEEKS,
 } from './seasonEngine';
 import { WorkoutDay } from '../types';
 
@@ -71,6 +73,27 @@ describe("the season's clock", () => {
     expect(dayOfWeekNow(new Date('2026-09-14T18:25:00Z'))).toBe(1);
     // Ten minutes later it is 00:05 on Tuesday, though UTC still says Monday.
     expect(dayOfWeekNow(new Date('2026-09-14T18:35:00Z'))).toBe(2);
+  });
+});
+
+describe("the calendar's week, which only the scheduler asks for", () => {
+  const start = '2026-09-14'; // a Monday
+
+  test('the first seven days are week 1', () => {
+    expect(seasonWeekOn(start, new Date('2026-09-14T06:00:00Z'))).toBe(1);
+    expect(seasonWeekOn(start, new Date('2026-09-20T06:00:00Z'))).toBe(1);
+  });
+
+  test('it turns over at midnight in the season, not in UTC', () => {
+    // 23:55 on Sunday in Kolkata is still week 1, though UTC calls it Sunday evening.
+    expect(seasonWeekOn(start, new Date('2026-09-20T18:25:00Z'))).toBe(1);
+    // Five past midnight on Monday is week 2.
+    expect(seasonWeekOn(start, new Date('2026-09-20T18:35:00Z'))).toBe(2);
+  });
+
+  test('it never runs past the end of the season, or before the start', () => {
+    expect(seasonWeekOn(start, new Date('2030-01-01T06:00:00Z'))).toBe(SEASON_WEEKS);
+    expect(seasonWeekOn(start, new Date('2026-09-01T06:00:00Z'))).toBe(1);
   });
 });
 
