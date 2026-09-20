@@ -115,6 +115,11 @@ const hasBeenHere = (row: GroupRow): boolean =>
 
 export const todayLine = (row: GroupRow): { text: string; tone: string } => {
   if (!hasBeenHere(row)) return { text: "never opened the app", tone: "text-ink-muted" };
+  // A finished week is the bigger news than whether today is ticked, and it was
+  // not being said anywhere: the row read "not yet today" to somebody who had
+  // already done the whole week.
+  const { credits = 0, needed = 0 } = row.currentWeekProgress ?? {};
+  if (needed > 0 && credits >= needed) return { text: "week done", tone: "text-clean-600" };
   const kind = row.days[todayIndex()];
   if (!kind) return { text: "not yet today", tone: "text-owed-600" };
   return { text: kind === "steps" ? "10k steps today" : "trained today", tone: "text-clean-600" };
@@ -141,6 +146,7 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
           ...r,
           days: Array.isArray(r.days) ? r.days : Array(7).fill(null),
           avatar: r.avatar ?? null,
+          currentWeekProgress: r.currentWeekProgress ?? { week: 1, credits: 0, needed: 0 },
         }))
       );
     } catch (err) {
@@ -211,6 +217,9 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
 
   const potCount = rows.filter((r) => r.potEligible).length;
   const trainedToday = rows.filter((r) => r.days[todayIndex()]).length;
+  const weekDone = rows.filter(
+    (r) => r.currentWeekProgress.needed > 0 && r.currentWeekProgress.credits >= r.currentWeekProgress.needed
+  ).length;
   const neverOpened = rows.filter((r) => !hasBeenHere(r));
   const owed = rows.reduce((sum, r) => sum + r.outstanding, 0);
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
@@ -263,12 +272,14 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
           </div>
           <div className="py-4 pr-4 sm:px-4 border-b border-line">
             <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">
-              Trained today
+              Week done
             </dt>
             <dd className="display text-3xl mt-1 tnum text-clean-600">
-              {trainedToday}
+              {weekDone}
               <span className="text-ink-muted">/{rows.length}</span>
             </dd>
+            {/* The daily number still matters, but it is the smaller of the two. */}
+            <dd className="text-xs text-ink-muted mt-1 tnum">{trainedToday} trained today</dd>
           </div>
         </dl>
 
@@ -335,15 +346,19 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                   <DayStrip row={r} />
                 </div>
 
-                {/* Nothing to show before a week has closed. */}
-                {r.weeks.length ? (
-                  <div className="flex gap-0.5 mt-1.5" aria-label={`${r.cleanWeeks} clean weeks`}>
-                    {r.weeks.map((w) => (
-                      <div key={w.week} className={`h-2 flex-1 rounded-sm ${OUTCOME_STYLE[w.outcome]}`} />
-                    ))}
-                    <div className="h-2 flex-1 rounded-sm border border-dashed border-ink-faint" />
-                  </div>
-                ) : null}
+                <div className="flex gap-0.5 mt-1.5" aria-label={`${r.cleanWeeks} clean weeks`}>
+                  {r.weeks.map((w) => (
+                    <div key={w.week} className={`h-2 flex-1 rounded-sm ${OUTCOME_STYLE[w.outcome]}`} />
+                  ))}
+                  {/* The week in progress, filled in once it is clean. */}
+                  <div
+                    className={`h-2 flex-1 rounded-sm border border-dashed ${
+                      r.currentWeekProgress.credits >= r.currentWeekProgress.needed
+                        ? "border-clean-500 bg-clean-500"
+                        : "border-ink-faint"
+                    }`}
+                  />
+                </div>
 
                 <p className="text-xs text-ink-muted mt-2 tnum">
                   {credit(r.currentWeekProgress.credits)} of {r.currentWeekProgress.needed} this
@@ -411,8 +426,16 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                           />
                         ))}
                         <div
-                          title={`Week ${r.currentWeekProgress.week}: ${credit(r.currentWeekProgress.credits)}/${r.currentWeekProgress.needed} so far`}
-                          className="h-4 flex-1 rounded-sm border border-dashed border-ink-faint"
+                          title={`Week ${r.currentWeekProgress.week}: ${credit(r.currentWeekProgress.credits)}/${r.currentWeekProgress.needed}${
+                            r.currentWeekProgress.credits >= r.currentWeekProgress.needed
+                              ? " — clean, and still running"
+                              : " so far"
+                          }`}
+                          className={`h-4 flex-1 rounded-sm border border-dashed ${
+                            r.currentWeekProgress.credits >= r.currentWeekProgress.needed
+                              ? "border-clean-500 bg-clean-500"
+                              : "border-ink-faint"
+                          }`}
                         />
                       </div>
                     </td>

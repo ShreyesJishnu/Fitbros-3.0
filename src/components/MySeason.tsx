@@ -91,19 +91,35 @@ const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => (
         className={`flex-1 rounded-md h-8 ${OUTCOME_STYLE[w.outcome]}`}
       />
     ))}
-    {/* The current week is still open, so it reads as an outline, not a verdict. */}
-    <div
-      role="listitem"
-      title={`Week ${view.currentWeekProgress.week}: ${credit(view.currentWeekProgress.credits)} of ${view.currentWeekProgress.needed} so far — still running`}
-      className="flex-1 rounded-md border-2 border-dashed border-ink-faint relative overflow-hidden h-8"
-    >
-      <div
-        className="absolute inset-x-0 bottom-0 bg-clean-500/40"
-        style={{
-          height: `${Math.min(100, (view.currentWeekProgress.credits / view.currentWeekProgress.needed) * 100)}%`,
-        }}
-      />
-    </div>
+    {/*
+      The running week fills as it goes and turns solid the moment it is clean.
+      It used to stay a pale wash until the admin closed the week, so hitting
+      the target looked the same as being a workout short — the one moment the
+      screen most needs to say yes. The border stays dashed: the week is clean,
+      and still running.
+    */}
+    {(() => {
+      const { week, credits, needed } = view.currentWeekProgress;
+      const clean = credits >= needed;
+      return (
+        <div
+          role="listitem"
+          title={`Week ${week}: ${credit(credits)} of ${needed}${
+            clean ? " — clean, and still running" : " so far — still running"
+          }`}
+          className={`flex-1 rounded-md border-2 border-dashed relative overflow-hidden h-8 ${
+            clean ? "border-clean-500 bg-clean-500" : "border-ink-faint"
+          }`}
+        >
+          {clean ? null : (
+            <div
+              className="absolute inset-x-0 bottom-0 bg-clean-500/40"
+              style={{ height: `${Math.min(100, (credits / needed) * 100)}%` }}
+            />
+          )}
+        </div>
+      );
+    })()}
   </div>
 );
 

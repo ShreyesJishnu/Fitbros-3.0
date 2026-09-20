@@ -14,6 +14,7 @@ const row = (over: Partial<GroupRow>): GroupRow =>
     avatar: null,
     days: [null, null, null, null, null, null, null],
     weeks: [],
+    currentWeekProgress: { week: 1, credits: 0, needed: 4 },
     lastSeenAt: "2026-09-14T10:00:00.000Z",
     ...over,
   }) as GroupRow;
@@ -30,7 +31,12 @@ describe("todayIndex", () => {
 describe("a row that arrives without the new fields", () => {
   it("does not take the screen down", () => {
     // What a fresh bundle sees for the minute an old API is still serving.
-    const stale = { ...row({}), days: undefined, avatar: undefined } as unknown as GroupRow;
+    const stale = {
+      ...row({}),
+      days: undefined,
+      avatar: undefined,
+      currentWeekProgress: undefined,
+    } as unknown as GroupRow;
     const normalised = {
       ...stale,
       days: Array.isArray(stale.days) ? stale.days : Array(7).fill(null),
@@ -68,6 +74,11 @@ describe("todayLine", () => {
       weeks: [{ week: 1, outcome: "clean", credits: 5, fine: 0 }],
     });
     expect(todayLine(veteran).text).toBe("not yet today");
+  });
+
+  it("says the week is done, which outranks whether today is ticked", () => {
+    const finished = row({ currentWeekProgress: { week: 1, credits: 4, needed: 4 } });
+    expect(todayLine(finished).text).toBe("week done");
   });
 
   it("reads today's cell, not the rest of the week", () => {
