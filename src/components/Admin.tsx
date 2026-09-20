@@ -66,7 +66,7 @@ const Admin: React.FC<AdminProps> = ({
    * how a new phone, or somebody who tapped the wrong name, gets put right.
    */
   const copyPlayerLink = async (user: User) => {
-    const link = playerLink(user.id);
+    const link = playerLink(user.id, user.secret);
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(user.id);

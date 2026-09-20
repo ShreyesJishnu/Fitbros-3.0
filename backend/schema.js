@@ -21,6 +21,9 @@ const DDL = `
     -- Stamped when the app boots with a claimed name. The only way to tell
     -- "has not trained" apart from "has never opened the app".
     last_seen_at TEXT,
+    -- What makes a player link theirs. Without it the id alone is the whole
+    -- claim, and every id is public, so anyone could write as anyone.
+    secret TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -145,6 +148,7 @@ const MIGRATIONS = [
   "ALTER TABLE fines ADD COLUMN voided_at TEXT",
   "ALTER TABLE fines ADD COLUMN voided_reason TEXT",
   "ALTER TABLE users ADD COLUMN last_seen_at TEXT",
+  "ALTER TABLE users ADD COLUMN secret TEXT",
 ];
 
 /**

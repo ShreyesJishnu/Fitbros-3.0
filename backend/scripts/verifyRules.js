@@ -26,9 +26,10 @@ const record = (name, passed, detail) => {
   console.log(`${passed ? "  PASS" : "  FAIL"}  ${name}${detail ? ` — ${detail}` : ""}`);
 };
 
-const call = async (method, path, { player, admin, body } = {}) => {
+const call = async (method, path, { player, secret, admin, body } = {}) => {
   const headers = { "Content-Type": "application/json" };
   if (player) headers["x-player-id"] = player;
+  if (secret) headers["x-player-secret"] = secret;
   if (admin) headers["x-admin-key"] = ADMIN;
   const res = await fetch(`${API}${path}`, {
     method,
@@ -81,6 +82,7 @@ async function main() {
   {
     const asPlayer = await call("POST", "/workouts", {
       player: debtor.userId,
+      secret: `seed-${debtor.userId}`,
       body: workout(debtor.userId, finedWeek, 1),
     });
     record(
@@ -105,6 +107,7 @@ async function main() {
 
     const thisWeek = await call("POST", "/workouts", {
       player: debtor.userId,
+      secret: `seed-${debtor.userId}`,
       body: workout(debtor.userId, currentWeek, 1),
     });
     record(
@@ -213,9 +216,47 @@ async function main() {
 
     const beyond = await call("POST", "/workouts", {
       player: other.userId,
+      secret: `seed-${other.userId}`,
       body: workout(other.userId, currentWeek + 1, 1),
     });
     record("a week that has not started still cannot", beyond.status === 400, `-> ${beyond.status}`);
+  }
+
+  console.log("\nA link is what proves who you are");
+  {
+    const other = all.find((p) => p.userId !== debtor.userId);
+    const mine = (await call("GET", "/users")).body.find((u) => u.id === other.userId);
+
+    record(
+      "the public roster does not hand out secrets",
+      mine.secret === undefined,
+      mine.secret === undefined ? "hidden" : "LEAKED"
+    );
+
+    const wrong = await call("PUT", `/users/${other.userId}`, {
+      player: other.userId,
+      secret: "not-their-secret",
+      body: { name: "Renamed By A Stranger" },
+    });
+    record("a wrong secret is refused", wrong.status === 403, `-> ${wrong.status}`);
+
+    const right = await call("PUT", `/users/${other.userId}`, {
+      player: other.userId,
+      secret: `seed-${other.userId}`,
+      body: { name: mine.name },
+    });
+    record("their own secret is accepted", right.status === 200, `-> ${right.status}`);
+
+    const borrowed = await call("POST", "/workouts", {
+      player: other.userId,
+      secret: `seed-${debtor.userId}`,
+      body: workout(other.userId, currentWeek, 1),
+    });
+    record(
+      "somebody else's secret does not work on your id",
+      borrowed.status === 403,
+      `-> ${borrowed.status}`
+    );
   }
 
   console.log("\nA player owns their name, and nothing else");
@@ -226,6 +267,7 @@ async function main() {
     const owedNow = (await season(debtor.userId)).outstanding;
     const rename = await call("PUT", `/users/${debtor.userId}`, {
       player: debtor.userId,
+      secret: `seed-${debtor.userId}`,
       body: { name: "Renamed By Themselves", avatar: "🏋️" },
     });
     record("a player can rename themselves", rename.status === 200, `-> ${rename.status}`);
@@ -233,12 +275,14 @@ async function main() {
     const other = all.find((p) => p.userId !== debtor.userId);
     const cross = await call("PUT", `/users/${other.userId}`, {
       player: debtor.userId,
+      secret: `seed-${debtor.userId}`,
       body: { name: "Renamed By Someone Else" },
     });
     record("a player cannot rename anybody else", cross.status === 403, `-> ${cross.status}`);
 
     const money = await call("PUT", `/users/${debtor.userId}`, {
       player: debtor.userId,
+      secret: `seed-${debtor.userId}`,
       body: { name: "Renamed By Themselves", priceLevel: 1, cleanWeeks: 24 },
     });
     record(
@@ -266,6 +310,7 @@ async function main() {
     const other = all.find((p) => p.userId !== debtor.userId);
     const cross = await call("POST", "/workouts", {
       player: other.userId,
+      secret: `seed-${other.userId}`,
       body: workout(debtor.userId, currentWeek, 2),
     });
     record("one player cannot log for another", cross.status === 403, `-> ${cross.status}`);

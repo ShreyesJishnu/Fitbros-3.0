@@ -51,18 +51,37 @@ const claimAdminFromUrl = () => {
  * their name. The admin still switches freely, because someone has to be able
  * to fix a record.
  *
- * This is a capability, not a credential. Anyone holding another player's link
- * can be them, and the API still trusts the x-player-id header it is sent.
+ * The link is the credential. Anyone holding another player's whole link can
+ * still be them — that is what a link is — but the id alone is no longer
+ * enough, and the ids are the public half.
  */
 const PLAYER_KEY = "playerId";
+const PLAYER_SECRET_KEY = "playerSecret";
 
+/**
+ * A link is `?me=<id>.<secret>`.
+ *
+ * The id says who; the secret is what makes the claim theirs. Every id is
+ * published by GET /api/users, so an id on its own was a claim anybody could
+ * make. Links without a secret still work — the server decides whether to
+ * insist — so nobody is locked out before their new link reaches them.
+ */
 const claimPlayerFromUrl = () => {
   try {
     const params = new URLSearchParams(window.location.search);
     if (!params.has("me")) return;
-    const id = params.get("me") || "";
-    if (id) localStorage.setItem(PLAYER_KEY, id);
-    else localStorage.removeItem(PLAYER_KEY);
+    const raw = params.get("me") || "";
+    const dot = raw.indexOf(".");
+    const id = dot === -1 ? raw : raw.slice(0, dot);
+    const secret = dot === -1 ? "" : raw.slice(dot + 1);
+    if (id) {
+      localStorage.setItem(PLAYER_KEY, id);
+      if (secret) localStorage.setItem(PLAYER_SECRET_KEY, secret);
+      else localStorage.removeItem(PLAYER_SECRET_KEY);
+    } else {
+      localStorage.removeItem(PLAYER_KEY);
+      localStorage.removeItem(PLAYER_SECRET_KEY);
+    }
     params.delete("me");
     const query = params.toString();
     window.history.replaceState({}, "", window.location.pathname + (query ? `?${query}` : ""));
@@ -93,23 +112,42 @@ export const currentPlayerId = (): string | null => {
   }
 };
 
-/** The admin switching seats, or a player claiming their link. */
+export const currentPlayerSecret = (): string | null => {
+  try {
+    return localStorage.getItem(PLAYER_SECRET_KEY);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * The admin switching seats, or a player claiming their link.
+ *
+ * Switching seats drops any secret held: the admin is not that player, and
+ * sending someone else's id with your own secret is exactly what the server
+ * refuses. The admin key is what carries them instead.
+ */
 export const setCurrentPlayerId = (id: string): void => {
   try {
     localStorage.setItem(PLAYER_KEY, id);
+    localStorage.removeItem(PLAYER_SECRET_KEY);
   } catch {
     /* private mode — the choice lasts for this page only */
   }
 };
 
 /** The link to send a player so their device knows who they are. */
-export const playerLink = (id: string): string =>
-  `${window.location.origin}${window.location.pathname}?me=${encodeURIComponent(id)}`;
+export const playerLink = (id: string, secret?: string | null): string =>
+  `${window.location.origin}${window.location.pathname}?me=${encodeURIComponent(
+    secret ? `${id}.${secret}` : id
+  )}`;
 
 export const apiFetch = (path: string, init: RequestInit = {}): Promise<Response> => {
   const player = currentPlayerId();
   const headers = new Headers(init.headers);
   if (player) headers.set("x-player-id", player);
+  const secret = currentPlayerSecret();
+  if (secret) headers.set("x-player-secret", secret);
   const admin = adminKey();
   if (admin) headers.set("x-admin-key", admin);
   if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");

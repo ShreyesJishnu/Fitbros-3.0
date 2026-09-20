@@ -224,9 +224,11 @@ async function seed() {
 
   for (const player of PLAYERS) {
     await db.run(
-      `INSERT INTO users (id, name, avatar, start_date, price_level)
-       VALUES (?, ?, ?, ?, 1)`,
-      [player.id, player.name, player.avatar, "2026-01-19"]
+      `INSERT INTO users (id, name, avatar, start_date, price_level, secret)
+       VALUES (?, ?, ?, ?, 1, ?)`,
+      // A seeded player needs the secret half of a link like a real one, or
+      // every local check runs against rows the guard cannot hold to anything.
+      [player.id, player.name, player.avatar, "2026-01-19", `seed-${player.id}`]
     );
 
     const workouts = workoutRowsFor(player);

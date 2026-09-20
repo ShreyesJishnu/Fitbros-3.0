@@ -1,4 +1,4 @@
-import { adminKey, currentPlayerId } from './http';
+import { adminKey, currentPlayerId, currentPlayerSecret } from './http';
 import { User, Goal, WorkoutDay } from '../types';
 
 // In production the API is served from the same origin as the app, so a
@@ -71,6 +71,8 @@ class ApiService {
             'Content-Type': 'application/json',
             // Every write states which player is making it; the server holds us to it.
             ...(currentPlayerId() ? { 'x-player-id': currentPlayerId() as string } : {}),
+            // …and proves it. Naming an id is not owning one: the ids are public.
+            ...(currentPlayerSecret() ? { 'x-player-secret': currentPlayerSecret() as string } : {}),
             // Admin routes (players, the season clock) want the shared key too.
             ...(adminKey() ? { 'x-admin-key': adminKey() as string } : {}),
             ...options?.headers,

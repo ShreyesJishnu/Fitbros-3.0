@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
 const compression = require("compression");
@@ -6,7 +7,7 @@ const fs = require("fs");
 const { v4: uuidv4 } = require("uuid");
 const db = require("./db");
 const engine = require("../src/utils/seasonEngine");
-const { runDatabaseInit, schemaIsReady } = require("./initDatabase");
+const { runDatabaseInit, schemaIsReady, newSecret } = require("./initDatabase");
 
 /**
  * How long a fine has before it reads as overdue. The engine used to own this;
@@ -38,7 +39,7 @@ const corsOptions = {
       },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-player-id", "x-admin-key"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-player-id", "x-player-secret", "x-admin-key"],
 };
 
 // Middleware
@@ -159,6 +160,28 @@ async function seasonCurrentWeek() {
  */
 const actorOf = (req) => req.header("x-player-id") || req.body?.actorId || null;
 
+/** The secret half of a player link, if the caller sent one. */
+const secretOf = (req) => req.header("x-player-secret") || null;
+
+/**
+ * Whether a player must prove their link, not just name an id.
+ *
+ * Off by default, and that is the migration rather than an oversight: every id
+ * is public, so before this existed the header alone was the whole claim. With
+ * the switch off a secret is checked when sent and the old links keep working;
+ * with it on, a request without the right secret is refused. Turn it on once
+ * everybody has their new link — REQUIRE_PLAYER_SECRET=1.
+ */
+const secretsEnforced = () => process.env.REQUIRE_PLAYER_SECRET === "1";
+
+/** Constant-time compare, so a wrong secret cannot be found one character at a time. */
+function secretMatches(sent, stored) {
+  if (!sent || !stored) return false;
+  const a = Buffer.from(String(sent));
+  const b = Buffer.from(String(stored));
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
 const isAdminRequest = (req) =>
   Boolean(process.env.ADMIN_KEY) && req.header("x-admin-key") === process.env.ADMIN_KEY;
 
@@ -183,8 +206,15 @@ function denyUnlessAdmin(req, res) {
   return true;
 }
 
-/** Rejects the request unless the caller owns `ownerId` (or is an admin). */
-function denyUnlessOwner(req, res, ownerId) {
+/**
+ * Rejects the request unless the caller owns `ownerId` (or is an admin).
+ *
+ * Naming an id is not owning it. Ids are published by GET /api/users, so the
+ * id on its own was a claim anybody could make: one request with somebody
+ * else's uuid renamed them, logged workouts as them, or deleted their week.
+ * The secret half of their link is what makes it theirs.
+ */
+async function denyUnlessOwner(req, res, ownerId) {
   if (isAdminRequest(req)) return false;
   const actor = actorOf(req);
   if (!actor) {
@@ -193,6 +223,28 @@ function denyUnlessOwner(req, res, ownerId) {
   }
   if (actor !== ownerId) {
     res.status(403).json({ error: "That record belongs to someone else" });
+    return true;
+  }
+
+  const sent = secretOf(req);
+  if (!sent && !secretsEnforced()) return false;
+
+  const row = await db.get("SELECT secret FROM users WHERE id = ?", [ownerId]);
+  if (!row?.secret) {
+    // Nobody can prove a secret that was never issued. Before enforcement that
+    // is the grace window; once it is on, an unprotected row is a hole, not an
+    // exemption, so it is refused and the admin reissues the link.
+    if (!secretsEnforced()) return false;
+    res.status(403).json({
+      error: "No link secret on file. Ask whoever runs the season to send your link again.",
+    });
+    return true;
+  }
+
+  if (!secretMatches(sent, row.secret)) {
+    res.status(403).json({
+      error: "That link is not yours. Ask whoever runs the season for your own.",
+    });
     return true;
   }
   return false;
@@ -230,13 +282,18 @@ app.get("/api/users", async (req, res) => {
     const rows = await db.all(`
       SELECT
         id, name, avatar, start_date, price_level,
-        clean_weeks, missed_weeks,
+        clean_weeks, missed_weeks, secret,
         created_at, updated_at
       FROM users
       ORDER BY name COLLATE NOCASE ASC
     `);
 
+    // The secret goes to the admin and nobody else: this route is public, and
+    // publishing it would hand out exactly what it exists to protect.
+    const forAdmin = isAdminRequest(req);
+
     const users = rows.map((row) => ({
+      ...(forAdmin ? { secret: row.secret } : {}),
       id: row.id,
       name: row.name,
       avatar: row.avatar,
@@ -353,8 +410,8 @@ app.post("/api/users", async (req, res) => {
     await db.run(
       `INSERT INTO users (
         id, name, avatar, start_date, price_level,
-        clean_weeks, missed_weeks
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        clean_weeks, missed_weeks, secret
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         id,
         sanitizedName,
@@ -363,6 +420,7 @@ app.post("/api/users", async (req, res) => {
         priceLevel || 1,
         cleanWeeks || 0,
         missedWeeks || 0,
+        newSecret(),
       ]
     );
 
@@ -406,7 +464,7 @@ app.put("/api/users/:id", async (req, res) => {
   } = req.body;
 
   if (!isAdminRequest(req) && process.env.ADMIN_KEY) {
-    if (denyUnlessOwner(req, res, req.params.id)) return;
+    if (await denyUnlessOwner(req, res, req.params.id)) return;
     if (priceLevel !== undefined || cleanWeeks !== undefined || missedWeeks !== undefined) {
       res.status(403).json({
         error: "Your name and emoji are yours. The rest the season works out for itself.",
@@ -682,7 +740,7 @@ app.post("/api/workouts", async (req, res) => {
     markedBy,
   } = req.body;
 
-  if (denyUnlessOwner(req, res, userId)) return;
+  if (await denyUnlessOwner(req, res, userId)) return;
 
   if (!userId || week == null || dayOfWeek == null || !date) {
     res.status(400).json({
@@ -801,7 +859,7 @@ app.delete("/api/workouts/:id", async (req, res) => {
       res.status(404).json({ error: "Workout not found" });
       return;
     }
-    if (denyUnlessOwner(req, res, row.user_id)) return;
+    if (await denyUnlessOwner(req, res, row.user_id)) return;
     if (denyUnlessWeekOpen(req, res, Number(row.week), await seasonCurrentWeek())) return;
 
     const result = await db.run("DELETE FROM workout_days WHERE id = ?", [
@@ -997,7 +1055,7 @@ app.post("/api/goals", async (req, res) => {
       return;
     }
 
-    if (denyUnlessOwner(req, res, userId)) return;
+    if (await denyUnlessOwner(req, res, userId)) return;
 
     // Rule 01 says a goal is measured by a number, and progress needs two of them:
     // where you start and what counts as done.
@@ -1095,7 +1153,7 @@ app.put("/api/goals/:id", async (req, res) => {
       res.status(404).json({ error: "Goal not found" });
       return;
     }
-    if (denyUnlessOwner(req, res, owner.user_id)) return;
+    if (await denyUnlessOwner(req, res, owner.user_id)) return;
 
     // Rule 11 gives the challenge title to the most goals completed AT TARGET.
     // A goal with numbers is completed by a reading that reaches the target —
@@ -1192,7 +1250,7 @@ app.delete("/api/goals/:id", async (req, res) => {
       res.status(404).json({ error: "Goal not found" });
       return;
     }
-    if (denyUnlessOwner(req, res, owner.user_id)) return;
+    if (await denyUnlessOwner(req, res, owner.user_id)) return;
 
     const result = await db.run("DELETE FROM goals WHERE id = ?", [
       req.params.id,
@@ -1428,7 +1486,7 @@ app.post("/api/goals/:id/progress", async (req, res) => {
       return;
     }
 
-    if (denyUnlessOwner(req, res, goal.user_id)) return;
+    if (await denyUnlessOwner(req, res, goal.user_id)) return;
 
     const baseline = goal.baseline_value != null ? Number(goal.baseline_value) : null;
     const target = goal.target_value != null ? Number(goal.target_value) : null;

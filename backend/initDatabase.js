@@ -10,9 +10,18 @@
  * start — but a wrong "yes" is worse: it leaves a live database a migration
  * behind, which is how production came to 500 on a column it never got.
  */
+const crypto = require("crypto");
 const db = require("./db");
 const { DDL, INDEXES, MIGRATIONS, COLUMN_PROBES } = require("./schema");
 const engine = require("../src/utils/seasonEngine");
+
+/**
+ * The secret half of a player link.
+ *
+ * 20 base32-ish characters from a CSPRNG — long enough that guessing is not a
+ * route in, short enough to survive being pasted into a chat app.
+ */
+const newSecret = () => crypto.randomBytes(15).toString("base64url");
 
 const SEASON_WEEKS_MS = engine.SEASON_WEEKS * 7 * 24 * 60 * 60 * 1000;
 
@@ -75,10 +84,19 @@ async function runDatabaseInit() {
     [seasonStart, seasonEnd]
   );
 
+  // Every player needs the secret half of their link. Idempotent on purpose:
+  // this runs whenever the column has just been added, and must never reissue a
+  // secret somebody is already carrying — that would lock them out.
+  const unclaimed = await db.all("SELECT id FROM users WHERE secret IS NULL OR secret = ''");
+  for (const row of unclaimed) {
+    await db.run("UPDATE users SET secret = ? WHERE id = ?", [newSecret(), row.id]);
+  }
+  if (unclaimed.length) console.log(`🔑 Issued a link secret to ${unclaimed.length} player(s)`);
+
   // Indexes last: some of them cover columns the ALTERs above just added.
   await runBatch(INDEXES);
 
   console.log("✅ Database initialization complete");
 }
 
-module.exports = { runDatabaseInit, schemaIsReady };
+module.exports = { runDatabaseInit, schemaIsReady, newSecret };

@@ -2,6 +2,8 @@ export interface User {
   id: string;
   name: string;
   avatar?: string;
+  /** The secret half of their link. Only ever sent to the admin. */
+  secret?: string;
   startDate: string;
   /** What a missed week costs this player: 1 = ₹200, 2 = ₹400, doubling with no ceiling. */
   priceLevel: number;
