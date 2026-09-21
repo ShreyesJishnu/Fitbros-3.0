@@ -206,6 +206,7 @@ async function main() {
     if (today < 7) {
       const ahead = await call("POST", "/workouts", {
         player: other.userId,
+        secret: `seed-${other.userId}`,
         body: workout(other.userId, currentWeek, today + 1),
       });
       record("a day ahead can be planned", ahead.status === 200, `day ${today + 1} of 7 -> ${ahead.status}`);
