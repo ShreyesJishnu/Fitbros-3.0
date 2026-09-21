@@ -56,6 +56,8 @@ export interface SeasonInput {
 
 /** A clean week is 5 workouts' worth of credit. Flat for everyone, every week. */
 export const WORKOUTS_PER_WEEK: 4;
+/** How many closed weeks back a player may still correct. Infinity is all of them. */
+export const WEEKS_EDITABLE_BACK: number;
 export const SEASON_TIME_ZONE: string;
 /** Which day of the season's week it is now, Monday = 1. */
 export function dayOfWeekNow(now?: Date, timeZone?: string): number;

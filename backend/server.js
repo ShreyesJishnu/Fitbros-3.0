@@ -250,12 +250,6 @@ async function denyUnlessOwner(req, res, ownerId) {
   return false;
 }
 
-/**
- * A week that has closed is history. Rewriting it re-derives that week's fine,
- * which can void a debt that was already billed — so only the admin, who has to
- * be able to correct a genuine mistake, may write into one.
- * Callers pass the current week they already read; nobody pays a second round trip.
- */
 /** Monday is 1, the way the season counts days. */
 const DAY_NAMES = [
   "Monday",
@@ -267,12 +261,50 @@ const DAY_NAMES = [
   "Sunday",
 ];
 
-function denyUnlessWeekOpen(req, res, weekNum, currentWeek) {
+/**
+ * How far back this caller may write.
+ *
+ * Rewriting a closed week re-derives that week's fine, which is why this was
+ * once the admin's alone. The group chose otherwise: people forget to log, and
+ * correcting it themselves beats messaging whoever runs the season. Every write
+ * already re-syncs that player's fines, so a week that stops being a miss stops
+ * being billed the moment it does — and a week that starts being one is billed
+ * the same way.
+ *
+ * How far back is the engine's to say — WEEKS_EDITABLE_BACK — so the rule sits
+ * with the other rules instead of buried in a route.
+ *
+ * A week whose fine has been paid is the exception, and it is not about trust.
+ * Correcting such a week voids the fine as "paid in credit", and the money that
+ * actually changed hands stops being counted in the pot — a player correcting
+ * one week was seen to drop their own recorded payments from ₹600 to ₹200.
+ * Cash already collected is the admin's record to change, not a side effect.
+ *
+ * Callers pass the current week they already read; nobody pays a second round trip.
+ */
+async function denyUnlessWeekEditable(req, res, weekNum, currentWeek, userId) {
   if (weekNum >= currentWeek || isAdminRequest(req)) return false;
-  res.status(403).json({
-    error: `Week ${weekNum} is closed — the season is on week ${currentWeek}. Only the admin can correct a closed week.`,
-  });
-  return true;
+
+  if (currentWeek - weekNum > engine.WEEKS_EDITABLE_BACK) {
+    res.status(403).json({
+      error: `Week ${weekNum} is too far back — you can correct the last ${engine.WEEKS_EDITABLE_BACK} week(s). Ask whoever runs the season.`,
+    });
+    return true;
+  }
+
+  const paid = await db.get(
+    `SELECT id FROM fines
+      WHERE user_id = ? AND week = ? AND settled_at IS NOT NULL AND voided_at IS NULL`,
+    [userId, weekNum]
+  );
+  if (paid) {
+    res.status(403).json({
+      error: `Week ${weekNum} is settled — that fine has been paid. Whoever runs the season has to change a week the money has already moved for.`,
+    });
+    return true;
+  }
+
+  return false;
 }
 
 // ==================== USER ROUTES ====================
@@ -785,7 +817,7 @@ app.post("/api/workouts", async (req, res) => {
       });
       return;
     }
-    if (denyUnlessWeekOpen(req, res, weekNum, currentWeek)) return;
+    if (await denyUnlessWeekEditable(req, res, weekNum, currentWeek, userId)) return;
 
     // A day later this week is allowed on purpose: the group uses it to commit
     // to the days they plan to train. A planned day that never happened is the
@@ -860,7 +892,8 @@ app.delete("/api/workouts/:id", async (req, res) => {
       return;
     }
     if (await denyUnlessOwner(req, res, row.user_id)) return;
-    if (denyUnlessWeekOpen(req, res, Number(row.week), await seasonCurrentWeek())) return;
+    if (await denyUnlessWeekEditable(req, res, Number(row.week), await seasonCurrentWeek(), row.user_id))
+      return;
 
     const result = await db.run("DELETE FROM workout_days WHERE id = ?", [
       req.params.id,

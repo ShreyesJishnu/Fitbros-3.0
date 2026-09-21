@@ -78,25 +78,85 @@ async function main() {
   const finedWeek = debtor.weeks.filter((w) => w.fine > 0)[0].week;
   const owedBefore = debtor.outstanding;
 
-  console.log("History is read-only for players");
+  console.log("A player can put an earlier week right, and the money follows");
   {
-    const asPlayer = await call("POST", "/workouts", {
-      player: debtor.userId,
-      secret: `seed-${debtor.userId}`,
-      body: workout(debtor.userId, finedWeek, 1),
-    });
+    // The group chose this: people forget to log. The cost is that a week which
+    // stops being a miss stops being billed, so it has to stop being billed
+    // correctly — immediately, and by the same engine that issued it.
+    const before = await season(debtor.userId);
+    const wk = before.weeks.find((w) => w.week === finedWeek);
+    const logged = new Set(
+      (await call("GET", `/workouts/${debtor.userId}/${finedWeek}`)).body
+        .filter((r) => r.isCompleted)
+        .map((r) => Number(r.dayOfWeek))
+    );
+
+    let credits = wk.credits;
+    let wrote = 0;
+    for (let d = 1; d <= 7 && credits < 4; d++) {
+      if (logged.has(d)) continue;
+      const res = await call("POST", "/workouts", {
+        player: debtor.userId,
+        secret: `seed-${debtor.userId}`,
+        body: workout(debtor.userId, finedWeek, d),
+      });
+      if (res.status !== 200) break;
+      credits++;
+      wrote++;
+    }
     record(
-      "a player cannot log into a week that has closed",
-      asPlayer.status === 403,
-      `week ${finedWeek} -> ${asPlayer.status}`
+      "a player can correct a week that has closed",
+      wrote > 0,
+      `week ${finedWeek}, ${wrote} day(s) added`
     );
 
     const after = await season(debtor.userId);
+    const nowClean = after.weeks.find((w) => w.week === finedWeek);
     record(
-      "their debt is untouched by the attempt",
-      after.outstanding === owedBefore,
-      `owes ₹${after.outstanding}`
+      "the corrected week is scored again",
+      nowClean.outcome === "clean",
+      `${wk.outcome} -> ${nowClean.outcome}`
     );
+    record(
+      "the fine for it stops being owed",
+      after.outstanding < owedBefore,
+      `owes ₹${owedBefore} -> ₹${after.outstanding}`
+    );
+
+    // Money that actually changed hands is not a player's to undo: voiding a
+    // settled fine takes it back out of the pot.
+    const fines = (await call("GET", `/fines?userId=${debtor.userId}`)).body;
+    const settled = (Array.isArray(fines) ? fines : []).find((f) => f.settledAt);
+    if (settled) {
+      const paidBefore = after.paid;
+      const attempt = await call("POST", "/workouts", {
+        player: debtor.userId,
+        secret: `seed-${debtor.userId}`,
+        body: workout(debtor.userId, settled.week, 7),
+      });
+      record(
+        "a week they already paid for is locked to them",
+        attempt.status === 403,
+        `week ${settled.week} -> ${attempt.status}`
+      );
+
+      const stillPaid = (await season(debtor.userId)).paid;
+      record(
+        "what they paid is still counted",
+        stillPaid === paidBefore,
+        `paid ₹${paidBefore} -> ₹${stillPaid}`
+      );
+
+      const byAdmin = await call("POST", "/workouts", {
+        admin: true,
+        body: workout(debtor.userId, settled.week, 7),
+      });
+      record("the admin can still change it", byAdmin.status === 200, `-> ${byAdmin.status}`);
+    } else {
+      record("a week they already paid for is locked to them", true, "none settled to test");
+      record("what they paid is still counted", true, "skipped with it");
+      record("the admin can still change it", true, "skipped with it");
+    }
 
     const asAdmin = await call("POST", "/workouts", {
       admin: true,

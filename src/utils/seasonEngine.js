@@ -35,6 +35,21 @@ const DEFAULT_KIND = 'session';
 const SEASON_WEEKS = 24;
 
 /**
+ * How far back a player may correct their own sheet, in closed weeks.
+ *
+ * The group decided people forget to log and should be able to put it right.
+ * The cost is stated rather than hidden: a week that stops being a miss stops
+ * being billed, so somebody carrying an unpaid fine can log four days into that
+ * week and the fine voids itself. Money already paid is safe — what was paid is
+ * recorded, not recomputed — but a debt still owed can be erased by the person
+ * who owes it.
+ *
+ * Infinity is the whole season. Set it to 1 and only the week just gone is
+ * reachable, which covers forgetting to log Saturday without opening the rest.
+ */
+const WEEKS_EDITABLE_BACK = Infinity;
+
+/**
  * The clock the season runs on. One zone for everyone, so a day starts and ends
  * at the same moment for the whole group however far anybody has travelled.
  */
@@ -280,6 +295,7 @@ module.exports = {
   WORKOUTS_PER_WEEK,
   CREDIT_BY_KIND,
   SEASON_WEEKS,
+  WEEKS_EDITABLE_BACK,
   SEASON_TIME_ZONE,
   dayOfWeekNow,
   seasonWeekOn,

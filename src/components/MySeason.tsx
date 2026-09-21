@@ -15,6 +15,7 @@ import {
   CREDIT_BY_KIND,
   PAYMENT_GRACE_HOURS,
   SEASON_WEEKS,
+  WEEKS_EDITABLE_BACK,
   WEEK_ENDS_ON,
   WEEKS_TO_MOVE,
 } from "../utils/seasonEngine";
@@ -77,6 +78,73 @@ const OUTCOME_STYLE = {
 } as const;
 
 const OUTCOME_LABEL = { clean: "Clean", missed: "Fined" } as const;
+
+/**
+ * Seven days of one week, tappable.
+ *
+ * The running week and a correction to an earlier one are the same act, so they
+ * are the same component. Drawn twice they drift, which is how this codebase has
+ * produced three bugs already: a marker that only one copy had, a header that
+ * disagreed with the row beneath it, a secret only one HTTP layer sent.
+ */
+const DayGrid: React.FC<{
+  week: number;
+  userId: string;
+  workoutDays: WorkoutDay[];
+  /** Only the week actually running marks today and reads days ahead as plans. */
+  live: boolean;
+  onCycle: (dayOfWeek: number, week: number) => void;
+}> = ({ week, userId, workoutDays, live, onCycle }) => (
+  <div className="grid grid-cols-7 gap-1.5">
+    {DAYS.map((label, i) => {
+      const dow = i + 1;
+      const isToday = live && i === todayIndex();
+      // Days ahead are tappable: planning the week is how the group uses them.
+      // They are only worded as plans, not as done.
+      const isFuture = live && i > todayIndex();
+      const row = workoutDays.find(
+        (w) => w.userId === userId && w.week === week && w.dayOfWeek === dow && w.isCompleted
+      );
+      const kind = row ? row.kind ?? "session" : null;
+      const worth = kind ? CREDIT_BY_KIND[kind] : 0;
+      return (
+        <button
+          key={label}
+          onClick={() => onCycle(dow, week)}
+          aria-pressed={Boolean(kind)}
+          aria-label={`${label}${isToday ? ", today" : isFuture ? ", ahead" : ""}: ${
+            kind === "session"
+              ? "workout logged, tap for 10k steps"
+              : kind === "steps"
+                ? "10k steps logged — half a workout, tap to clear"
+                : "nothing logged, tap for a workout"
+          }`}
+          /* Today is ringed inside the button: these sit in a grid whose first
+             and last columns are flush with the page, where an outside ring
+             loses an edge. */
+          className={`min-h-[56px] rounded-xl border text-xs font-semibold cursor-pointer
+            transition-colors duration-150 ease-settle disabled:opacity-40 disabled:cursor-not-allowed
+            ${isToday ? "ring-2 ring-inset ring-ink" : ""}
+            ${
+              kind === "session"
+                ? "bg-clean-500 border-clean-500 text-paper"
+                : kind === "steps"
+                  ? "bg-clean-100 border-clean-500 text-clean-700"
+                  : "bg-paper-card border-line text-ink-muted hover:border-clean-500 hover:text-clean-600"
+            }`}
+        >
+          <span className={`block ${isToday && !kind ? "text-ink" : ""}`}>{label}</span>
+          {kind === "session" ? (
+            <Check size={14} className="mx-auto mt-1" aria-hidden="true" />
+          ) : kind === "steps" ? (
+            <Footprints size={14} className="mx-auto mt-1" aria-hidden="true" />
+          ) : null}
+          {kind ? <span className="sr-only">worth {worth} of a workout</span> : null}
+        </button>
+      );
+    })}
+  </div>
+);
 
 /** The season so far, plus the week still running, as one strip. */
 const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => (
@@ -179,6 +247,7 @@ const MySeason: React.FC<MySeasonProps> = ({
   // Recording a payment is the admin's job — the server refuses it from anyone else.
   const admin = isAdmin();
   const { showToast } = useToast();
+  const [editingWeek, setEditingWeek] = useState<number | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -205,6 +274,19 @@ const MySeason: React.FC<MySeasonProps> = ({
     () => players.find((p) => p.userId === currentUser?.id) ?? null,
     [players, currentUser]
   );
+  const editableWeeks = useMemo(() => {
+    if (!me) return [];
+    // A fined week whose fine is not in the unsettled list has been paid, and
+    // the server will not let a player rewrite it: voiding a settled fine takes
+    // money that actually changed hands back out of the pot.
+    const unsettled = new Set(me.unsettledFines.map((f) => f.week));
+    // Newest first: the week just gone is the one people come here for.
+    return [...me.weeks]
+      .filter((w) => me.currentWeekProgress.week - w.week <= WEEKS_EDITABLE_BACK)
+      .sort((a, b) => b.week - a.week)
+      .map((w) => ({ ...w, settled: w.fine > 0 && !unsettled.has(w.week) }));
+  }, [me]);
+
   const call = async (path: string, body?: object) => {
     setBusy(true);
     setNotice(null);
@@ -227,9 +309,8 @@ const MySeason: React.FC<MySeasonProps> = ({
    * Walk a day round the cycle: nothing → a session → 10k steps → nothing.
    * Your sheet only, and only the running week.
    */
-  const cycleDay = async (dayOfWeek: number) => {
+  const cycleDay = async (dayOfWeek: number, week: number) => {
     if (!currentUser || !me) return;
-    const week = me.currentWeekProgress.week;
     const existing = workoutDays.find(
       (w) => w.userId === currentUser.id && w.week === week && w.dayOfWeek === dayOfWeek
     );
@@ -257,9 +338,12 @@ const MySeason: React.FC<MySeasonProps> = ({
     if (next && saved) {
       // A day ahead is a plan, not a result — cheering it as done would be the
       // app claiming training that has not happened.
-      const planned = dayOfWeek > todayIndex() + 1;
+      const live = week === me.currentWeekProgress.week;
+      const planned = live && dayOfWeek > todayIndex() + 1;
       showToast(
-        planned
+        !live
+          ? `Week ${week} updated. The season has re-scored it.`
+          : planned
           ? `${currentUser.name} is down for ${DAYS[dayOfWeek - 1]}. Hold yourself to it.`
           : `${currentUser.name} ${next === "steps" ? "walked it" : "done"}! Good job!`,
         "success"
@@ -365,61 +449,13 @@ const MySeason: React.FC<MySeasonProps> = ({
                 </p>
               </div>
 
-              <div className="grid grid-cols-7 gap-1.5">
-                {DAYS.map((label, i) => {
-                  const dow = i + 1;
-                  const isToday = i === todayIndex();
-                  // Days ahead are tappable: planning the week is how the group
-                  // uses them. They are only worded as plans, not as done.
-                  const isFuture = i > todayIndex();
-                  const row = workoutDays.find(
-                    (w) =>
-                      w.userId === me.userId &&
-                      w.week === me.currentWeekProgress.week &&
-                      w.dayOfWeek === dow &&
-                      w.isCompleted
-                  );
-                  const kind = row ? row.kind ?? "session" : null;
-                  const worth = kind ? CREDIT_BY_KIND[kind] : 0;
-                  return (
-                    <button
-                      key={label}
-                      onClick={() => cycleDay(dow)}
-                      aria-pressed={Boolean(kind)}
-                      aria-label={`${label}${isToday ? ", today" : isFuture ? ", ahead" : ""}: ${
-                        kind === "session"
-                          ? "workout logged, tap for 10k steps"
-                          : kind === "steps"
-                            ? "10k steps logged — half a workout, tap to clear"
-                            : "nothing logged, tap for a workout"
-                      }`}
-                      /* Today is ringed inside the button: these sit in a grid
-                         whose first and last columns are flush with the page,
-                         where an outside ring loses an edge. */
-                      className={`min-h-[56px] rounded-xl border text-xs font-semibold cursor-pointer
-                        transition-colors duration-150 ease-settle disabled:opacity-40 disabled:cursor-not-allowed
-                        ${isToday ? "ring-2 ring-inset ring-ink" : ""}
-                        ${
-                          kind === "session"
-                            ? "bg-clean-500 border-clean-500 text-paper"
-                            : kind === "steps"
-                              ? "bg-clean-100 border-clean-500 text-clean-700"
-                              : "bg-paper-card border-line text-ink-muted hover:border-clean-500 hover:text-clean-600"
-                        }`}
-                    >
-                      <span className={`block ${isToday && !kind ? "text-ink" : ""}`}>{label}</span>
-                      {kind === "session" ? (
-                        <Check size={14} className="mx-auto mt-1" aria-hidden="true" />
-                      ) : kind === "steps" ? (
-                        <Footprints size={14} className="mx-auto mt-1" aria-hidden="true" />
-                      ) : null}
-                      {kind ? (
-                        <span className="sr-only">worth {worth} of a workout</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
+              <DayGrid
+                week={me.currentWeekProgress.week}
+                userId={me.userId}
+                workoutDays={workoutDays}
+                live
+                onCycle={cycleDay}
+              />
             </div>
           </div>
 
@@ -460,6 +496,64 @@ const MySeason: React.FC<MySeasonProps> = ({
               </span>
             </div>
           </div>
+
+          {/*
+            Correcting a week that has closed. The same grid as the running
+            week, because it is the same act — the season re-scores the week on
+            every tap, so a miss that becomes clean stops being billed there and
+            then, and a week that stops being clean starts being billed.
+          */}
+          {editableWeeks.length > 0 ? (
+            <div className="pt-5 border-t border-line mt-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-2">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Fix an earlier week
+                </p>
+                <select
+                  value={editingWeek ?? ""}
+                  onChange={(e) => setEditingWeek(e.target.value ? Number(e.target.value) : null)}
+                  aria-label="Which week to correct"
+                  className="min-h-[40px] px-2 border border-line rounded-lg bg-paper-card text-sm
+                             font-semibold text-ink cursor-pointer focus:ring-2 focus:ring-clean-500"
+                >
+                  <option value="">Choose a week…</option>
+                  {editableWeeks.map((w) => (
+                    <option key={w.week} value={w.week} disabled={w.settled}>
+                      Week {w.week} — {credit(w.credits)}/{needed} {w.outcome}
+                      {w.fine ? ` · ${rupees(w.fine)}` : ""}
+                      {w.settled ? " · paid, locked" : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {editingWeek ? (
+                <>
+                  <DayGrid
+                    week={editingWeek}
+                    userId={me.userId}
+                    workoutDays={workoutDays}
+                    live={false}
+                    onCycle={cycleDay}
+                  />
+                  <p className="text-xs text-ink-muted mt-2">
+                    Log what you actually did. The week is scored again as you tap, and any
+                    fine for it follows — this is the record everyone else reads.
+                  </p>
+                  {editableWeeks.some((w) => w.settled) ? (
+                    <p className="text-xs text-ink-faint mt-1">
+                      Weeks you have already paid for are locked. Ask whoever runs the season
+                      to change one — the money has moved.
+                    </p>
+                  ) : null}
+                </>
+              ) : (
+                <p className="text-xs text-ink-muted">
+                  Forgot to log something? Pick the week and put it right.
+                </p>
+              )}
+            </div>
+          ) : null}
 
           {/* Money you owe. Paying happens between people; only the admin records it. */}
           {me.unsettledFines.length > 0 ? (
