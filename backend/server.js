@@ -1319,6 +1319,35 @@ app.get("/api/settings", async (req, res) => {
 });
 
 /**
+ * Bill the weeks a move just closed.
+ *
+ * The clock and the fines have to move together, and there is no transaction to
+ * lean on, so a failure puts the week back rather than leaving a season that
+ * says week N but was never billed for week N-1. Both the admin's button and
+ * the scheduler come through here, so a week closed by the clock and a week
+ * closed by hand produce exactly the same fines.
+ *
+ * ponytail: compensating write, not a transaction — good enough for one row.
+ */
+async function billClosedWeeks(from, to) {
+  const results = [];
+  if (to === from) return results;
+  try {
+    const players = await db.all("SELECT id, name FROM users");
+    for (const player of players) {
+      const { issued, voided } = await syncFines(player.id);
+      if (issued.length || voided.length) {
+        results.push({ userId: player.id, name: player.name, issued, voided });
+      }
+    }
+  } catch (err) {
+    await db.run("UPDATE admin_settings SET current_week = ? WHERE id = 1", [from]);
+    throw new Error(`Fine sync failed, season left at week ${from}: ${err.message}`);
+  }
+  return results;
+}
+
+/**
  * Move the season on.
  *
  * `current_week` is the season's clock: every fine and price level is
@@ -1391,28 +1420,12 @@ app.put("/api/settings", async (req, res) => {
 
     await db.run(`UPDATE admin_settings SET ${sets.join(", ")} WHERE id = 1`, params);
 
-    // The week that just closed is now scoreable, so bill it. syncFines also
-    // voids anything the move stopped being a miss, which is what makes a forced
-    // rewind honest rather than just cheap.
-    const results = [];
-    if (to !== from) {
-      try {
-        const players = await db.all("SELECT id, name FROM users");
-        for (const player of players) {
-          const { issued, voided } = await syncFines(player.id);
-          if (issued.length || voided.length) {
-            results.push({ userId: player.id, name: player.name, issued, voided });
-          }
-        }
-      } catch (err) {
-        // The clock and the fines have to move together. There is no transaction
-        // to lean on here, so put the week back rather than leave a season that
-        // says week N but was never billed for week N-1.
-        // ponytail: compensating write, not a transaction — good enough for one row.
-        await db.run("UPDATE admin_settings SET current_week = ? WHERE id = 1", [from]);
-        res.status(500).json({ error: `Fine sync failed, season left at week ${from}: ${err.message}` });
-        return;
-      }
+    let results;
+    try {
+      results = await billClosedWeeks(from, to);
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+      return;
     }
 
     const row = await db.get(
@@ -1434,6 +1447,77 @@ app.put("/api/settings", async (req, res) => {
       results,
     });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * The season's clock, wound by a schedule instead of by remembering.
+ *
+ * A week only ended when the admin pressed a button, which meant 24 Mondays of
+ * remembering and a season that silently stopped billing the moment one was
+ * missed. This closes whatever the calendar says has finished.
+ *
+ * Written to be run daily and to be safe run twice, because that is what
+ * scheduled delivery actually is: a run can be missed and a run can be
+ * duplicated. So it sets the week the calendar implies rather than adding one —
+ * running it five times on a Monday leaves week 2, and a week of missed runs
+ * catches up on the next one instead of staying a week behind forever.
+ *
+ * Only ever forwards. Rewinding un-bills people and stays the admin's decision.
+ */
+app.get("/api/cron/advance-week", async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  const authorised =
+    isAdminRequest(req) || (secret && req.header("authorization") === `Bearer ${secret}`);
+  if (!authorised) {
+    res.status(401).json({ error: "Scheduled job only." });
+    return;
+  }
+
+  try {
+    const row = await db.get(
+      "SELECT challenge_start_date, current_week, is_active FROM admin_settings WHERE id = 1"
+    );
+    if (!row) {
+      res.status(404).json({ error: "Season not configured" });
+      return;
+    }
+
+    const from = Number(row.current_week);
+    const onTheCalendar = engine.seasonWeekOn(row.challenge_start_date);
+
+    // A daily job does not quietly fall a month behind; a jump that big means
+    // the start date moved, and closing ten weeks at once would bill the whole
+    // group thousands of rupees with nobody watching. Stop and say so instead.
+    const MAX_CATCH_UP = 4;
+    if (onTheCalendar - from > MAX_CATCH_UP) {
+      console.error(
+        `⏰ Refusing to jump week ${from} -> ${onTheCalendar}. Check the season start date.`
+      );
+      res.status(409).json({
+        moved: false,
+        currentWeek: from,
+        onTheCalendar,
+        error: `The calendar is ${onTheCalendar - from} weeks ahead of the season. That is too far to close automatically — check the start date, then move the week by hand.`,
+      });
+      return;
+    }
+
+    if (!row.is_active || onTheCalendar <= from) {
+      res.json({ moved: false, currentWeek: from, onTheCalendar, reason: !row.is_active ? "season is not active" : "already up to date" });
+      return;
+    }
+
+    await db.run("UPDATE admin_settings SET current_week = ? WHERE id = 1", [onTheCalendar]);
+    const results = await billClosedWeeks(from, onTheCalendar);
+    const finesIssued = results.reduce((n, r) => n + r.issued.length, 0);
+    const finesVoided = results.reduce((n, r) => n + r.voided.length, 0);
+    console.log(`⏰ Season week ${from} -> ${onTheCalendar}: issued ${finesIssued}, voided ${finesVoided}`);
+
+    res.json({ moved: true, movedFrom: from, currentWeek: onTheCalendar, finesIssued, finesVoided, results });
+  } catch (err) {
+    console.error("Week advance failed:", err.message);
     res.status(500).json({ error: err.message });
   }
 });

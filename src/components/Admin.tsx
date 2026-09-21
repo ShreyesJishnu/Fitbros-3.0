@@ -13,7 +13,7 @@ import {
 import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './ToastContext';
 import { apiFetch, playerLink } from '../services/http';
-import { CREDIT_BY_KIND, fineAtLevel, SEASON_WEEKS, WORKOUTS_PER_WEEK } from '../utils/seasonEngine';
+import { CREDIT_BY_KIND, fineAtLevel, SEASON_WEEKS, WORKOUTS_PER_WEEK, seasonWeekOn } from '../utils/seasonEngine';
 
 /** The ladder is the engine's to state — this screen only prints it. */
 const rupees = (n: number) => `₹${n.toLocaleString('en-IN')}`;
@@ -172,6 +172,10 @@ const Admin: React.FC<AdminProps> = ({
 
   const currentWeek = adminSettings.currentWeek;
   const seasonOver = currentWeek >= SEASON_WEEKS;
+  // The scheduler closes weeks on its own; this is what you see when it has not.
+  // A clock nobody can see failing is a clock you find out about in week six.
+  const onTheCalendar = seasonWeekOn(adminSettings.challengeStartDate);
+  const weeksBehind = Math.max(0, onTheCalendar - currentWeek);
 
   /**
    * How many players are short of a clean week right now.
@@ -406,7 +410,19 @@ const Admin: React.FC<AdminProps> = ({
           </button>
         </div>
 
-        {/* The season only moves when someone says so — and it is hard to undo. */}
+        {weeksBehind > 0 && !seasonOver ? (
+          <div className="mt-3 border border-skip-100 bg-skip-50 rounded-lg px-3 py-3">
+            <p className="text-sm font-semibold text-skip-700">
+              The calendar is on week {onTheCalendar}; the season is on week {currentWeek}.
+            </p>
+            <p className="text-xs text-ink-muted mt-1">
+              The nightly job closes weeks by itself. {weeksBehind} still open means it has not run —
+              close {weeksBehind === 1 ? 'it' : 'them'} here.
+            </p>
+          </div>
+        ) : null}
+
+        {/* The season also moves on its own now — this is the manual override. */}
         <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border border-line rounded-lg bg-paper-card px-3 py-3">
           <p className="text-sm text-ink-muted">
             {seasonOver ? (
