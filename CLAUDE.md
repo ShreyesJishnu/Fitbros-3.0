@@ -45,7 +45,8 @@ attached. The rules are the product; the app only reports what the rules decide.
   has a 48-hour deadline, but missing it costs nothing beyond still owing.
 - **The pot** splits between everyone with nothing outstanding. A fined week does
   not cost you a share; an unpaid one does.
-- **Goals:** 6 points across 2–6 goals, worth 3/2/1. Physical, numbered, provable.
+- **Goals:** carry no points and no money. Yours to pick, whatever the subject —
+  the only rule is a start number and a target, so progress can be followed.
 - **Gone deliberately:** skip tokens, weekly plans and swaps, the standing
   machine. Sickness, injury and travel are handled between people, not in code.
 

@@ -232,11 +232,6 @@ const unpaidFines = (state, settledWeeks = []) =>
  * things the rules say outright, so nobody has to argue them one at a time.
  * Returns null when the goal is eligible.
  */
-const INTAKE_WORDS = [
-  "eat", "eating", "diet", "calorie", "calories", "macro", "macros", "protein shake",
-  "sleep", "sleeping", "hydrate", "hydration", "water intake", "supplement", "fast",
-  "fasting", "meal", "meals", "sugar", "alcohol", "smoking", "quit",
-];
 const BODYWEIGHT_WORDS = [
   "bodyweight", "body weight", "lose weight", "weight loss", "body fat", "bodyfat",
   "bmi", "waist", "slim down", "lean down", "cut to",
@@ -260,11 +255,11 @@ const goalEligibilityError = (description, target) => {
     return "Bodyweight isn't a goal — it's a state, not an output. Set the training that gets you there.";
   }
 
-  // Training, not intake.
-  const intake = INTAKE_WORDS.find((w) => new RegExp(`\\b${w}\\b`).test(text));
-  if (intake) {
-    return `"${intake}" is something you consume, not something you do. Goals are training.`;
-  }
+  // What the goal is about is nobody's business but yours. Goals carry no
+  // points and no money, so the season has no reason to rule on the subject —
+  // only on whether it can be followed. Trying to name the ineligible subjects
+  // never worked anyway: "quit smoking" was refused while "smoke 0 cigarettes
+  // a day" sailed through, which is a word list pretending to be a judgement.
 
   // Measured by a number: the target carries it, or the description does.
   const hasNumber = /\d/.test(String(target || "")) || /\d/.test(text);

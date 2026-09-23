@@ -13,7 +13,8 @@ attached. The rules are the product; the app only reports what the rules decide.
 - **A missed week costs money** — ₹500 → ₹1,000 → ₹2,000. Three misses at one price raise it; three clean weeks lower it.
 - **Missing never eliminates you. Not paying does.** Active → Suspended (unpaid past 48h) → Out (two fines while suspended). No buy-backs.
 - **Skip tokens:** 3 a season, never 3 in a row, never in the last two weeks.
-- **Goals:** 6 points across 2–6 goals, worth 3/2/1. Physical, numbered, provable.
+- **Goals:** carry no points and no money. Yours to pick, whatever the subject —
+  the only rule is a start number and a target, so progress can be followed.
 - **The pot** splits between everyone still standing with nothing outstanding. A fined week does not cost you a share.
 
 The full 12 rules live in the app under **Rules**, and in `src/data/rules.ts`.

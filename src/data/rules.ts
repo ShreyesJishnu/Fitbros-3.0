@@ -31,9 +31,9 @@ export const ALL_RULES: Rule[] = [
     number: "01",
     title: "Goals",
     stage: "Before you start",
-    summary: "Physical, numbered, provable. Nothing you eat or sleep.",
+    summary: "Yours to pick. Numbered and provable, so progress can be followed.",
     paragraphs: [
-      "Your own categories, no fixed slots. Every goal is physical output, measured by a number — reps, kg, minutes, sessions, distance, time — and provable by an app log, a timestamp or a photo.",
+      "Your own categories, no fixed slots, and your own subject — training, steps, cigarettes, whatever you are actually trying to move. Every goal is measured by a number — reps, kg, minutes, sessions, distance, time, a count you want to bring down — and provable by an app log, a timestamp or a photo.",
       "Goals carry no weight and cost nothing. Set as many or as few as keep you moving — they are yours to chase, and only you decide what is worth chasing.",
       "Bodyweight isn't a goal. It's a state, not an output. Train right and it follows."],
     points: [],

@@ -6,6 +6,7 @@ import {
   WORKOUTS_PER_WEEK,
   dayOfWeekNow,
   seasonWeekOn,
+  goalEligibilityError,
   SEASON_WEEKS,
 } from './seasonEngine';
 import { WorkoutDay } from '../types';
@@ -94,6 +95,33 @@ describe("the calendar's week, which only the scheduler asks for", () => {
   test('it never runs past the end of the season, or before the start', () => {
     expect(seasonWeekOn(start, new Date('2030-01-01T06:00:00Z'))).toBe(SEASON_WEEKS);
     expect(seasonWeekOn(start, new Date('2026-09-01T06:00:00Z'))).toBe(1);
+  });
+});
+
+describe('what makes a goal a goal', () => {
+  /**
+   * The subject is the player's own. Goals carry no points and no money, so the
+   * season has nothing to rule on but whether progress can be followed — and
+   * the word list that used to judge the subject never worked: it refused
+   * "quit smoking" while waving through "smoke 0 cigarettes a day".
+   */
+  test('the subject is nobody else\'s business', () => {
+    expect(goalEligibilityError('Quit smoking', '30')).toBeNull();
+    expect(goalEligibilityError('Smoke 0 cigarettes a day', '0')).toBeNull();
+    expect(goalEligibilityError('Cut alcohol to 2 units a week', '2')).toBeNull();
+    expect(goalEligibilityError('Sleep 8 hours', '8')).toBeNull();
+  });
+
+  test('it still has to be followable', () => {
+    expect(goalEligibilityError('Get fitter', '')).toMatch(/number/i);
+    expect(goalEligibilityError('', '')).toMatch(/what the goal is/i);
+  });
+
+  test('a goal that counts down is tracked like any other', () => {
+    // Ten a day to none: the thing a quitting goal actually needs.
+    expect(goalProgressFraction(10, 0, 10)).toBe(0);
+    expect(goalProgressFraction(10, 0, 4)).toBe(0.6);
+    expect(goalProgressFraction(10, 0, 0)).toBe(1);
   });
 });
 
