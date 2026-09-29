@@ -6,7 +6,7 @@ import PlayerSheet from "./PlayerSheet";
 import GroupStats from "./GroupStats";
 import { shareCard } from "../utils/shareCard";
 import { apiFetch } from "../services/http";
-import { SEASON_WEEKS } from "../utils/seasonEngine";
+import { PAYMENT_GRACE_HOURS, SEASON_WEEKS } from "../utils/seasonEngine";
 import { todayIndex } from "../utils/today";
 
 /**
@@ -38,6 +38,8 @@ export interface GroupRow {
   days: (WorkoutKind | null)[];
   /** When they last opened the app. null means they never have. */
   lastSeenAt: string | null;
+  /** Fines still owed. `overdue` is the server's read of the 48-hour deadline. */
+  unsettledFines: { week: number; amount: number; dueAt: string; overdue: boolean }[];
 }
 
 interface GroupBoardProps {
@@ -147,6 +149,7 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
           days: Array.isArray(r.days) ? r.days : Array(7).fill(null),
           avatar: r.avatar ?? null,
           currentWeekProgress: r.currentWeekProgress ?? { week: 1, credits: 0, needed: 0 },
+          unsettledFines: Array.isArray(r.unsettledFines) ? r.unsettledFines : [],
         }))
       );
     } catch (err) {
@@ -221,6 +224,26 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
     (r) => r.currentWeekProgress.needed > 0 && r.currentWeekProgress.credits >= r.currentWeekProgress.needed
   ).length;
   const neverOpened = rows.filter((r) => !hasBeenHere(r));
+
+  /**
+   * Who is past the 48-hour deadline, and by how long.
+   *
+   * The group chose pressure over a lock: missing the deadline still costs
+   * nothing but still owing it, and nobody is stopped from logging. What
+   * changes is that it stops being private — the season says out loud who owes
+   * what, to everyone, and leaves the rest to the group.
+   */
+  const overdue = rows
+    .map((r) => {
+      const late = r.unsettledFines.filter((f) => f.overdue);
+      if (!late.length) return null;
+      const owed = late.reduce((sum, f) => sum + f.amount, 0);
+      const since = Math.min(...late.map((f) => new Date(f.dueAt).getTime()));
+      const days = Math.floor((Date.now() - since) / 86400000);
+      return { name: r.name, userId: r.userId, owed, days };
+    })
+    .filter((x): x is { name: string; userId: string; owed: number; days: number } => x !== null)
+    .sort((a, b) => b.days - a.days);
   const owed = rows.reduce((sum, r) => sum + r.outstanding, 0);
   const paid = rows.reduce((sum, r) => sum + r.paid, 0);
 
@@ -283,6 +306,30 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
           </div>
         </dl>
 
+        {/* Only while somebody is late. Paying up makes it disappear. */}
+        {overdue.length ? (
+          <div className="mt-4 border border-owed-100 bg-owed-50 rounded-xl px-4 py-3">
+            <p className="text-sm text-owed-700 font-semibold">
+              {overdue.length === 1 ? "1 fine is" : `${overdue.length} fines are`} past the{" "}
+              {PAYMENT_GRACE_HOURS}-hour deadline
+            </p>
+            <ul className="mt-2 space-y-1">
+              {overdue.map((o) => (
+                <li key={o.userId} className="text-sm text-ink flex justify-between gap-3">
+                  <span className="font-semibold truncate">{o.name}</span>
+                  <span className="tnum text-owed-600 shrink-0">
+                    {rupees(o.owed)} · {o.days === 0 ? "due today" : `${o.days}d late`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="text-xs text-ink-muted mt-2">
+              Nothing is taken away for being late — you simply still owe it, and now
+              everyone can see it.
+            </p>
+          </div>
+        ) : null}
+
         {/* Only while it is still true. Once everyone is in, it stops existing. */}
         {neverOpened.length ? (
           <div className="mt-4 border border-owed-100 bg-owed-50 rounded-xl px-4 py-3">
@@ -337,7 +384,10 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                   <span className="flex items-baseline gap-2 shrink-0">
                     <span className={`text-xs ${todayLine(r).tone}`}>{todayLine(r).text}</span>
                     {r.outstanding ? (
-                      <span className="tnum font-semibold text-owed-600">{rupees(r.outstanding)}</span>
+                      <span className="tnum font-semibold text-owed-600">
+                        {rupees(r.outstanding)}
+                        {r.unsettledFines.some((f) => f.overdue) ? " late" : ""}
+                      </span>
                     ) : null}
                   </span>
                 </div>
@@ -449,6 +499,11 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
                       }`}
                     >
                       {rupees(r.outstanding)}
+                      {r.unsettledFines.some((f) => f.overdue) ? (
+                        <span className="block text-[10px] font-semibold uppercase tracking-[0.08em]">
+                          past due
+                        </span>
+                      ) : null}
                     </td>
                   </tr>
                 );

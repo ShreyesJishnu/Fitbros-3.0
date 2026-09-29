@@ -203,12 +203,19 @@ const nudgeFor = (
   needed: number,
   daysLeft: number,
   fine: number,
-  outstanding: number
+  outstanding: number,
+  overdue = false
 ): { tone: "owed" | "skip" | "clean"; text: string } | null => {
   if (outstanding > 0) {
     return {
       tone: "owed",
-      text: `${rupees(outstanding)} is due. Settle it with whoever runs the season — nothing outstanding is what keeps you in for the pot.`,
+      // Past the deadline the season takes nothing away — that is the rule, and
+      // saying so matters, because a player who thinks they are locked out
+      // stops logging and turns one fine into a run of them. What is actually
+      // at stake is the pot, and the fact that it is no longer private.
+      text: overdue
+        ? `${rupees(outstanding)} is past its ${PAYMENT_GRACE_HOURS} hours. You can still log your workouts — nothing is taken away. What it costs is your share of the pot, and the group can see it on the board now.`
+        : `${rupees(outstanding)} is due. Settle it with whoever runs the season — nothing outstanding is what keeps you in for the pot.`,
     };
   }
 
@@ -421,7 +428,14 @@ const MySeason: React.FC<MySeasonProps> = ({
 
             {me
               ? (() => {
-                  const nudge = nudgeFor(done, needed, daysLeft, me.fineIfMissed, me.outstanding);
+                  const nudge = nudgeFor(
+                    done,
+                    needed,
+                    daysLeft,
+                    me.fineIfMissed,
+                    me.outstanding,
+                    me.unsettledFines.some((f) => f.overdue)
+                  );
                   if (!nudge) return null;
                   const tone = {
                     owed: "bg-owed-50 text-owed-700",

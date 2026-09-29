@@ -4,10 +4,10 @@ import { WORKOUTS_PER_WEEK } from "./seasonEngine";
  * Mirrors nudgeFor in MySeason.tsx. Kept as a table of the cases that matter so
  * a wording change can't quietly turn "you're short" into silence.
  */
-type Tone = "owed" | "skip" | "clean";
+type Tone = "owed" | "overdue" | "skip" | "clean";
 
-const nudge = (done: number, daysLeft: number, outstanding = 0): Tone | null => {
-  if (outstanding > 0) return "owed";
+const nudge = (done: number, daysLeft: number, outstanding = 0, overdue = false): Tone | null => {
+  if (outstanding > 0) return overdue ? "overdue" : "owed";
   const left = WORKOUTS_PER_WEEK - done;
   if (left <= 0) return "clean";
   if (left > daysLeft) return "owed";
@@ -36,6 +36,13 @@ describe("the weekly nudge", () => {
 
   test("money owed outranks anything about workouts", () => {
     expect(nudge(WORKOUTS_PER_WEEK, 4, 500)).toBe("owed");
+  });
+
+  test("a fine past its deadline is said differently — and never silently", () => {
+    // The player is told they can still log. A player who believes they are
+    // locked out stops logging, and one fine becomes a run of them.
+    expect(nudge(0, 3, 200, true)).toBe("overdue");
+    expect(nudge(0, 3, 200, false)).toBe("owed");
   });
 
   test("money owed outranks the week — nobody is ever silenced now", () => {

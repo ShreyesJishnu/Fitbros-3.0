@@ -15,6 +15,7 @@ const row = (over: Partial<GroupRow>): GroupRow =>
     days: [null, null, null, null, null, null, null],
     weeks: [],
     currentWeekProgress: { week: 1, credits: 0, needed: 4 },
+    unsettledFines: [],
     lastSeenAt: "2026-09-14T10:00:00.000Z",
     ...over,
   }) as GroupRow;
@@ -36,6 +37,7 @@ describe("a row that arrives without the new fields", () => {
       days: undefined,
       avatar: undefined,
       currentWeekProgress: undefined,
+      unsettledFines: undefined,
     } as unknown as GroupRow;
     const normalised = {
       ...stale,
