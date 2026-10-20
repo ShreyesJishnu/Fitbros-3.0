@@ -1333,6 +1333,20 @@ app.get("/api/goals/stats/:userId", async (req, res) => {
 
 app.get("/api/settings", async (req, res) => {
   try {
+    // The season keeps its own time here, not on a schedule.
+    //
+    // A nightly job needed an env var, a cron registration and a plan that
+    // allows it, and a season sat three weeks behind because one of those was
+    // quietly wrong. Everything that loads the app reads this route first, so
+    // the first person to open it on a Monday closes the week for everybody.
+    // Idempotent and forward-only, so concurrent readers cannot double-bill.
+    //
+    // A failure here must not take the whole app down with it: the week being
+    // a day late is survivable, a settings route that 500s is not.
+    await windSeasonForward().catch((err) =>
+      console.error("Winding the season forward failed:", err.message)
+    );
+
     const row = await db.get(
       "SELECT challenge_start_date, challenge_end_date, current_week, is_active FROM admin_settings WHERE id = 1"
     );
@@ -1499,6 +1513,41 @@ app.put("/api/settings", async (req, res) => {
  *
  * Only ever forwards. Rewinding un-bills people and stays the admin's decision.
  */
+/**
+ * Close whatever the calendar says has finished, and bill it.
+ *
+ * Returns what it did. Safe to call repeatedly and from anywhere: it sets the
+ * week the calendar implies rather than adding one, so five calls on a Monday
+ * leave week 2, and a week nobody called it catches up on the next call.
+ */
+async function windSeasonForward() {
+  const row = await db.get(
+    "SELECT challenge_start_date, current_week, is_active FROM admin_settings WHERE id = 1"
+  );
+  if (!row) return { moved: false, reason: "season not configured" };
+
+  const from = Number(row.current_week);
+  const onTheCalendar = engine.seasonWeekOn(row.challenge_start_date);
+
+  if (!row.is_active) return { moved: false, currentWeek: from, onTheCalendar, reason: "season is not active" };
+  if (onTheCalendar <= from) return { moved: false, currentWeek: from, onTheCalendar, reason: "already up to date" };
+
+  // A gap this big means the start date moved, not that weeks quietly passed.
+  // Closing ten at once would bill the group thousands with nobody watching.
+  const MAX_CATCH_UP = 4;
+  if (onTheCalendar - from > MAX_CATCH_UP) {
+    console.error(`⏰ Refusing to jump week ${from} -> ${onTheCalendar}. Check the season start date.`);
+    return { moved: false, currentWeek: from, onTheCalendar, tooFar: true };
+  }
+
+  await db.run("UPDATE admin_settings SET current_week = ? WHERE id = 1", [onTheCalendar]);
+  const results = await billClosedWeeks(from, onTheCalendar);
+  const finesIssued = results.reduce((n, r) => n + r.issued.length, 0);
+  const finesVoided = results.reduce((n, r) => n + r.voided.length, 0);
+  console.log(`⏰ Season week ${from} -> ${onTheCalendar}: issued ${finesIssued}, voided ${finesVoided}`);
+  return { moved: true, movedFrom: from, currentWeek: onTheCalendar, finesIssued, finesVoided, results };
+}
+
 app.get("/api/cron/advance-week", async (req, res) => {
   const secret = process.env.CRON_SECRET;
   const authorised =
@@ -1509,46 +1558,8 @@ app.get("/api/cron/advance-week", async (req, res) => {
   }
 
   try {
-    const row = await db.get(
-      "SELECT challenge_start_date, current_week, is_active FROM admin_settings WHERE id = 1"
-    );
-    if (!row) {
-      res.status(404).json({ error: "Season not configured" });
-      return;
-    }
-
-    const from = Number(row.current_week);
-    const onTheCalendar = engine.seasonWeekOn(row.challenge_start_date);
-
-    // A daily job does not quietly fall a month behind; a jump that big means
-    // the start date moved, and closing ten weeks at once would bill the whole
-    // group thousands of rupees with nobody watching. Stop and say so instead.
-    const MAX_CATCH_UP = 4;
-    if (onTheCalendar - from > MAX_CATCH_UP) {
-      console.error(
-        `⏰ Refusing to jump week ${from} -> ${onTheCalendar}. Check the season start date.`
-      );
-      res.status(409).json({
-        moved: false,
-        currentWeek: from,
-        onTheCalendar,
-        error: `The calendar is ${onTheCalendar - from} weeks ahead of the season. That is too far to close automatically — check the start date, then move the week by hand.`,
-      });
-      return;
-    }
-
-    if (!row.is_active || onTheCalendar <= from) {
-      res.json({ moved: false, currentWeek: from, onTheCalendar, reason: !row.is_active ? "season is not active" : "already up to date" });
-      return;
-    }
-
-    await db.run("UPDATE admin_settings SET current_week = ? WHERE id = 1", [onTheCalendar]);
-    const results = await billClosedWeeks(from, onTheCalendar);
-    const finesIssued = results.reduce((n, r) => n + r.issued.length, 0);
-    const finesVoided = results.reduce((n, r) => n + r.voided.length, 0);
-    console.log(`⏰ Season week ${from} -> ${onTheCalendar}: issued ${finesIssued}, voided ${finesVoided}`);
-
-    res.json({ moved: true, movedFrom: from, currentWeek: onTheCalendar, finesIssued, finesVoided, results });
+    const outcome = await windSeasonForward();
+    res.status(outcome.tooFar ? 409 : 200).json(outcome);
   } catch (err) {
     console.error("Week advance failed:", err.message);
     res.status(500).json({ error: err.message });
