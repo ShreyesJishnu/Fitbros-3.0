@@ -144,6 +144,7 @@ const runSeason = ({
   workoutDays,
   settledWeeks = [],
   settledAmounts = {},
+  excusedWeeks = [],
   completedWeeks,
   fromWeek = 1,
 }) => {
@@ -162,6 +163,18 @@ const runSeason = ({
   // the season ran before they were in it.
   for (let week = Math.max(1, fromWeek); week <= completedWeeks; week++) {
     const credits = creditsIn(userId, workoutDays, week);
+
+    // A week somebody was agreed to be out of. It is recorded — the row shows
+    // they were away rather than pretending the week never ran — but it is not
+    // judged: no fine, no strike against the price, and it does not break or
+    // build a clean streak. The week simply isn't theirs to have missed.
+    //
+    // The season still handles injury between people: what counts as a reason
+    // is the group's call, and this only writes down what they decided.
+    if (excusedWeeks.includes(week)) {
+      weeks.push({ week, outcome: 'excused', credits, priceLevel, fine: 0 });
+      continue;
+    }
 
     if (credits >= WORKOUTS_PER_WEEK) {
       cleanWeeks++;

@@ -32,7 +32,7 @@ export interface GroupRow {
   paid: number;
   outstanding: number;
   potEligible: boolean;
-  weeks: { week: number; outcome: "clean" | "missed"; credits: number; fine: number }[];
+  weeks: { week: number; outcome: "clean" | "missed" | "excused"; credits: number; fine: number }[];
   currentWeekProgress: { week: number; credits: number; needed: number };
   /** The running week, Monday first. null is a day with nothing logged. */
   days: (WorkoutKind | null)[];
@@ -40,7 +40,50 @@ export interface GroupRow {
   lastSeenAt: string | null;
   /** Fines still owed. `overdue` is the server's read of the 48-hour deadline. */
   unsettledFines: { week: number; amount: number; dueAt: string; overdue: boolean }[];
+  /** Left the season. Off the board, but their paid fines stay in the pot. */
+  hasLeft?: boolean;
 }
+
+export interface Overdue {
+  userId: string;
+  name: string;
+  /** Everything they owe, not only the part that is late. */
+  owed: number;
+  /** Days since the oldest overdue fine's deadline. */
+  days: number;
+}
+
+/**
+ * Who is past the 48-hour deadline, how much they owe, and for how long.
+ *
+ * The group chose pressure over a lock: missing the deadline still costs
+ * nothing but still owing it, and nobody is stopped from logging. What changes
+ * is that it stops being private — the season says out loud who owes what, to
+ * everyone, and leaves the rest to the group.
+ *
+ * The deadline decides who is named; the amount beside them is everything they
+ * owe. Summing only the overdue fines understated the debt the moment a newer
+ * week was billed — somebody ₹200 late and ₹400 freshly billed read as ₹200,
+ * so the number people were asked to settle was never the number they owed.
+ *
+ * Biggest debt first: the list exists to apply pressure, and that is where it
+ * does the most good.
+ */
+export const overdueRoll = (rows: GroupRow[]): Overdue[] =>
+  rows
+    .map((r) => {
+      const late = (r.unsettledFines ?? []).filter((f) => f.overdue);
+      if (!late.length) return null;
+      const since = Math.min(...late.map((f) => new Date(f.dueAt).getTime()));
+      return {
+        userId: r.userId,
+        name: r.name,
+        owed: r.outstanding,
+        days: Math.floor((Date.now() - since) / 86400000),
+      };
+    })
+    .filter((x): x is Overdue => x !== null)
+    .sort((a, b) => b.owed - a.owed);
 
 interface GroupBoardProps {
   currentUser: User | null;
@@ -56,6 +99,9 @@ const credit = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 const OUTCOME_STYLE = {
   clean: "bg-clean-500",
   missed: "bg-owed-500",
+  // Neither kept nor missed. Grey says "not judged" where the two live colours
+  // both say "scored".
+  excused: "bg-line-soft",
 } as const;
 
 const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
@@ -129,6 +175,13 @@ export const todayLine = (row: GroupRow): { text: string; tone: string } => {
 
 const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
   const [rows, setRows] = useState<GroupRow[]>([]);
+  /**
+   * What players who have left already paid.
+   *
+   * The pot is money that changed hands, not a column of the current roster, so
+   * leaving the season cannot take your payments back out of it.
+   */
+  const [paidByDeparted, setPaidByDeparted] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [shareNote, setShareNote] = useState<string | null>(null);
@@ -143,15 +196,17 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
       // During a deploy a fresh bundle can reach an API that has not rolled
       // over yet, and one missing field would take the whole screen down —
       // r.days.map on undefined. A row is normalised on the way in instead.
-      setRows(
-        (Array.isArray(seasons) ? seasons : []).map((r: GroupRow) => ({
-          ...r,
-          days: Array.isArray(r.days) ? r.days : Array(7).fill(null),
-          avatar: r.avatar ?? null,
-          currentWeekProgress: r.currentWeekProgress ?? { week: 1, credits: 0, needed: 0 },
-          unsettledFines: Array.isArray(r.unsettledFines) ? r.unsettledFines : [],
-        }))
-      );
+      const all = (Array.isArray(seasons) ? seasons : []).map((r: GroupRow) => ({
+        ...r,
+        days: Array.isArray(r.days) ? r.days : Array(7).fill(null),
+        avatar: r.avatar ?? null,
+        currentWeekProgress: r.currentWeekProgress ?? { week: 1, credits: 0, needed: 0 },
+        unsettledFines: Array.isArray(r.unsettledFines) ? r.unsettledFines : [],
+      }));
+      // Split once, here, so every count below reads the roster and only the
+      // pot reads the money.
+      setRows(all.filter((r) => !r.hasLeft));
+      setPaidByDeparted(all.filter((r) => r.hasLeft).reduce((sum, r) => sum + r.paid, 0));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Something went wrong");
     } finally {
@@ -189,7 +244,7 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
           potEligible: r.potEligible,
         })),
         potCount: rows.filter((r) => r.potEligible).length,
-        inPot: rows.reduce((sum, r) => sum + r.paid, 0),
+        inPot: rows.reduce((sum, r) => sum + r.paid, 0) + paidByDeparted,
         outstanding: rows.reduce((sum, r) => sum + r.outstanding, 0),
       });
       setShareNote(result === "shared" ? "Shared." : "Saved as a PNG — send it to the group.");
@@ -225,27 +280,10 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
   ).length;
   const neverOpened = rows.filter((r) => !hasBeenHere(r));
 
-  /**
-   * Who is past the 48-hour deadline, and by how long.
-   *
-   * The group chose pressure over a lock: missing the deadline still costs
-   * nothing but still owing it, and nobody is stopped from logging. What
-   * changes is that it stops being private — the season says out loud who owes
-   * what, to everyone, and leaves the rest to the group.
-   */
-  const overdue = rows
-    .map((r) => {
-      const late = r.unsettledFines.filter((f) => f.overdue);
-      if (!late.length) return null;
-      const owed = late.reduce((sum, f) => sum + f.amount, 0);
-      const since = Math.min(...late.map((f) => new Date(f.dueAt).getTime()));
-      const days = Math.floor((Date.now() - since) / 86400000);
-      return { name: r.name, userId: r.userId, owed, days };
-    })
-    .filter((x): x is { name: string; userId: string; owed: number; days: number } => x !== null)
-    .sort((a, b) => b.days - a.days);
+  const overdue = overdueRoll(rows);
+  const overdueTotal = overdue.reduce((sum, o) => sum + o.owed, 0);
   const owed = rows.reduce((sum, r) => sum + r.outstanding, 0);
-  const paid = rows.reduce((sum, r) => sum + r.paid, 0);
+  const paid = rows.reduce((sum, r) => sum + r.paid, 0) + paidByDeparted;
 
   return (
     <div className="space-y-5">
@@ -310,8 +348,9 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
         {overdue.length ? (
           <div className="mt-4 border border-owed-100 bg-owed-50 rounded-xl px-4 py-3">
             <p className="text-sm text-owed-700 font-semibold">
-              {overdue.length === 1 ? "1 fine is" : `${overdue.length} fines are`} past the{" "}
-              {PAYMENT_GRACE_HOURS}-hour deadline
+              {rupees(overdueTotal)} owed by {overdue.length}{" "}
+              {overdue.length === 1 ? "person" : "people"} past the {PAYMENT_GRACE_HOURS}-hour
+              deadline
             </p>
             <ul className="mt-2 space-y-1">
               {overdue.map((o) => (

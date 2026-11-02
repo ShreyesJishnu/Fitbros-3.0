@@ -59,7 +59,7 @@ interface SeasonView {
   paid: number;
   outstanding: number;
   potEligible: boolean;
-  weeks: { week: number; outcome: "clean" | "missed"; credits: number; fine: number }[];
+  weeks: { week: number; outcome: "clean" | "missed" | "excused"; credits: number; fine: number }[];
   currentWeekProgress: { week: number; credits: number; needed: number };
   unsettledFines: UnsettledFine[];
 }
@@ -75,9 +75,12 @@ const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 const OUTCOME_STYLE = {
   clean: "bg-clean-500",
   missed: "bg-owed-500",
+  // Neither kept nor missed. Grey says "not judged" where the two live colours
+  // both say "scored".
+  excused: "bg-line-soft",
 } as const;
 
-const OUTCOME_LABEL = { clean: "Clean", missed: "Fined" } as const;
+const OUTCOME_LABEL = { clean: "Clean", missed: "Fined", excused: "Away" } as const;
 
 /**
  * Seven days of one week, tappable.

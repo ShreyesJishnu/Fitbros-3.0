@@ -9,7 +9,7 @@ import { WorkoutDay, WorkoutKind } from '../types';
 
 /** The ladder has no ceiling: every two misses doubles the price. */
 export type PriceLevel = number;
-export type WeekOutcome = 'clean' | 'missed';
+export type WeekOutcome = 'clean' | 'missed' | 'excused';
 
 export interface WeekResult {
   week: number;
@@ -48,6 +48,8 @@ export interface SeasonInput {
   settledWeeks?: number[];
   /** What was actually paid for a settled week, as recorded at the time. */
   settledAmounts?: Record<number, number>;
+  /** Weeks the group agreed somebody was out for. Recorded, never judged. */
+  excusedWeeks?: number[];
   /** Weeks completed so far; the in-progress week is not judged. */
   completedWeeks: number;
   /** The first week this player was in the season. Earlier weeks are not theirs. */

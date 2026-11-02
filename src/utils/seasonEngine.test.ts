@@ -46,7 +46,11 @@ const workouts = (userId: string, perWeek: WeekEntry[]): WorkoutDay[] => {
 
 const season = (
   perWeek: WeekEntry[],
-  opts: { settledWeeks?: number[]; settledAmounts?: Record<number, number> } = {}
+  opts: {
+    settledWeeks?: number[];
+    settledAmounts?: Record<number, number>;
+    excusedWeeks?: number[];
+  } = {}
 ) =>
   runSeason({
     userId: 'u1',
@@ -389,5 +393,37 @@ describe('goal progress (Rule 11: completed AT TARGET)', () => {
     expect(goalProgressFraction(null, 100, 90)).toBeNull();
     expect(goalProgressFraction(70, null, 90)).toBeNull();
     expect(goalProgressFraction(70, 100, undefined)).toBeNull();
+  });
+});
+
+describe("a week somebody was agreed to be out for", () => {
+  it("costs nothing and is not a miss", () => {
+    const s = season([0, 0, 0], { excusedWeeks: [1, 2, 3] });
+    expect(s.billed).toBe(0);
+    expect(s.outstanding).toBe(0);
+    expect(s.missedWeeks).toBe(0);
+    expect(s.cleanWeeks).toBe(0);
+    expect(s.potEligible).toBe(true);
+    expect(s.weeks.map((w) => w.outcome)).toEqual(["excused", "excused", "excused"]);
+  });
+
+  it("does not move the price, so coming back costs what leaving did", () => {
+    // Two real misses double the price. Two excused weeks must not.
+    expect(season([0, 0], { excusedWeeks: [1, 2] }).priceLevel).toBe(1);
+    expect(season([0, 0]).priceLevel).toBe(2);
+  });
+
+  it("neither breaks a clean streak nor counts toward one", () => {
+    // Clean, away, clean: two clean weeks that are not consecutive. The halving
+    // rule needs two in a row, and being away is not a week in between.
+    const s = season([4, 0, 4], { excusedWeeks: [2] });
+    expect(s.cleanStreak).toBe(2);
+    expect(s.cleanWeeks).toBe(2);
+  });
+
+  it("still bills the weeks either side of it", () => {
+    const s = season([0, 0, 0], { excusedWeeks: [2] });
+    expect(s.billed).toBe(400);
+    expect(s.weeks.map((w) => w.fine)).toEqual([200, 0, 200]);
   });
 });

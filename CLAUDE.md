@@ -47,8 +47,17 @@ attached. The rules are the product; the app only reports what the rules decide.
   not cost you a share; an unpaid one does.
 - **Goals:** carry no points and no money. Yours to pick, whatever the subject —
   the only rule is a start number and a target, so progress can be followed.
+- **A week can be excused.** Injury, and whatever else the group agrees. The
+  week is recorded as one they were away for — shown on their row, grey — and
+  then not judged: no fine, no strike against the price, and it neither breaks
+  a clean streak nor builds one. Who gets excused is still settled between
+  people; the app only writes down what they settled on.
+- **Leaving does not take your money back.** A player who leaves drops off the
+  roster, out of the feed and out of the billing run, and nothing is derived
+  for them again — but fines they paid stay in the pot. Removing them used to
+  delete the row, and the cascade took the receipts with it.
 - **Gone deliberately:** skip tokens, weekly plans and swaps, the standing
-  machine. Sickness, injury and travel are handled between people, not in code.
+  machine.
 
 ## Architecture rules
 

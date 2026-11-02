@@ -17,7 +17,7 @@ import { goalReadings } from "../services/http";
 
 interface WeekCell {
   week: number;
-  outcome: "clean" | "missed";
+  outcome: "clean" | "missed" | "excused";
   credits: number;
   fine: number;
 }

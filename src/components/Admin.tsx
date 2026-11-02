@@ -154,12 +154,12 @@ const Admin: React.FC<AdminProps> = ({
     setShowAddUser(false);
   };
 
-  // Delete user (deactivate)
+  // Take a player out of the season. Their record stays; see the DELETE route.
   const handleDeactivateUser = (user: User) => {
     setConfirmDialog({
       isOpen: true,
       title: 'Remove player',
-      message: `Are you sure you want to remove ${user.name} from the challenge? This will delete all their data.`,
+      message: `Take ${user.name} out of the season? They stop being billed and drop off the board. Fines they have paid stay in the pot.`,
       confirmLabel: 'Remove',
       onConfirm: () => {
         onDeleteUser(user.id);

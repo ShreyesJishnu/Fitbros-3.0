@@ -317,6 +317,7 @@ app.get("/api/users", async (req, res) => {
         clean_weeks, missed_weeks, secret,
         created_at, updated_at
       FROM users
+      WHERE left_at IS NULL
       ORDER BY name COLLATE NOCASE ASC
     `);
 
@@ -609,19 +610,32 @@ app.put("/api/users/:id", async (req, res) => {
   }
 });
 
+/**
+ * A player leaves the season.
+ *
+ * Marked, not deleted. Every other table hangs off users with ON DELETE
+ * CASCADE, so removing the row took the player's workouts, fines and — the part
+ * that actually cost the group — the record of what they had already paid. The
+ * pot is the sum of money that changed hands, so a departure used to shrink it.
+ * Money paid stays paid.
+ *
+ * They drop off the roster, out of the feed and out of the billing run, so
+ * nothing new is derived for them after today.
+ */
 app.delete("/api/users/:id", async (req, res) => {
   if (denyUnlessAdmin(req, res)) return;
   try {
-    const result = await db.run("DELETE FROM users WHERE id = ?", [
-      req.params.id,
-    ]);
+    const result = await db.run(
+      "UPDATE users SET left_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND left_at IS NULL",
+      [new Date().toISOString(), req.params.id]
+    );
 
     if (result.changes === 0) {
       res.status(404).json({ error: "User not found" });
       return;
     }
 
-    debug(`Deleted user ID: ${req.params.id}`);
+    debug(`Player left the season: ${req.params.id}`);
     res.json({ message: "User deleted successfully" });
   } catch (err) {
     console.error("Error deleting user:", err.message);
@@ -1380,7 +1394,7 @@ async function billClosedWeeks(from, to) {
   const results = [];
   if (to === from) return results;
   try {
-    const players = await db.all("SELECT id, name FROM users");
+    const players = await db.all("SELECT id, name FROM users WHERE left_at IS NULL");
     for (const player of players) {
       const { issued, voided } = await syncFines(player.id);
       if (issued.length || voided.length) {
@@ -1665,7 +1679,7 @@ app.get("/api/feed", async (req, res) => {
   try {
     const limit = Math.min(Number(req.query.limit) || 40, 100);
     const [users, fines, goals, progress, workouts, settings] = await Promise.all([
-      db.all("SELECT id, name, avatar FROM users"),
+      db.all("SELECT id, name, avatar FROM users WHERE left_at IS NULL"),
       db.all("SELECT user_id, week, amount, price_level, issued_at, settled_at FROM fines WHERE voided_at IS NULL"),
       db.all("SELECT id, user_id, description, completed_date FROM goals WHERE is_completed = 1"),
       db.all(
@@ -1805,7 +1819,7 @@ function joinedAtWeek(playerStart, seasonStart) {
 }
 
 async function loadSeason(userId) {
-  const [workoutRows, fineRows, settings, player] = await Promise.all([
+  const [workoutRows, fineRows, excusedRows, settings, player] = await Promise.all([
     db.all(
       "SELECT user_id, week, day_of_week, is_completed, kind FROM workout_days WHERE user_id = ?",
       [userId]
@@ -1814,6 +1828,7 @@ async function loadSeason(userId) {
       "SELECT week, amount, settled_at, settled_amount FROM fines WHERE user_id = ? AND voided_at IS NULL",
       [userId]
     ),
+    db.all("SELECT week FROM excused_weeks WHERE user_id = ?", [userId]),
     db.get("SELECT current_week, challenge_start_date FROM admin_settings WHERE id = 1"),
     db.get("SELECT start_date FROM users WHERE id = ?", [userId]),
   ]);
@@ -1833,6 +1848,7 @@ async function loadSeason(userId) {
     workoutDays,
     settledWeeks: fineRows.filter((r) => r.settled_at).map((r) => Number(r.week)),
     settledAmounts: recordedPayments(fineRows),
+    excusedWeeks: excusedRows.map((r) => Number(r.week)),
     completedWeeks: Math.max(0, currentWeek - 1),
     fromWeek: joinedAtWeek(player?.start_date, settings?.challenge_start_date),
   });
@@ -1916,6 +1932,37 @@ async function syncFines(userId) {
 }
 
 /**
+ * What is left of somebody who has gone.
+ *
+ * A player who left has no season to replay: the weeks after they went are not
+ * theirs to miss, and replaying an empty sheet would bill them for every one of
+ * them. The only thing that outlives them is money that changed hands, which is
+ * the group's, not theirs — so this reports what they paid and nothing else.
+ */
+function departedView(user, fines) {
+  return {
+    userId: user.id,
+    name: user.name,
+    avatar: user.avatar || null,
+    hasLeft: true,
+    paid: fines
+      .filter((f) => f.settled_at)
+      .reduce((sum, f) => sum + Number(f.settled_amount ?? f.amount), 0),
+    outstanding: 0,
+    billed: 0,
+    cleanWeeks: 0,
+    missedWeeks: 0,
+    cleanStreak: 0,
+    potEligible: false,
+    weeks: [],
+    days: Array(7).fill(null),
+    currentWeekProgress: { week: 0, credits: 0, needed: 0 },
+    lastSeenAt: user.last_seen_at ?? null,
+    unsettledFines: [],
+  };
+}
+
+/**
  * The one shape a season is reported in. Both the single-player route and the
  * batch route build their response here, so they cannot drift apart.
  */
@@ -1939,6 +1986,9 @@ function seasonView(user, { state, currentWeek, workoutRows }, unsettled) {
     // Whether this person has ever opened the app, which is the only thing that
     // tells an empty week apart from someone who never got in.
     lastSeenAt: user.last_seen_at ?? null,
+    // Left the season. Off the roster everywhere, but still reported here so
+    // the pot can count what they paid before they went.
+    hasLeft: Boolean(user.left_at),
     // The week still running, day by day, so the group can see who trained
     // today without opening anybody's season. Monday is 1.
     days: Array.from({ length: 7 }, (_, i) => {
@@ -1987,13 +2037,14 @@ const groupByUser = (rows) => {
 // five table reads instead of five per player — Turso charges a round trip each.
 app.get("/api/seasons", async (req, res) => {
   try {
-    const [users, workoutRows, fineRows, settings] = await Promise.all([
-      db.all("SELECT id, name, avatar, start_date, last_seen_at FROM users ORDER BY name COLLATE NOCASE ASC"),
+    const [users, workoutRows, fineRows, excusedRows, settings] = await Promise.all([
+      db.all("SELECT id, name, avatar, start_date, last_seen_at, left_at FROM users ORDER BY name COLLATE NOCASE ASC"),
       db.all("SELECT user_id, week, day_of_week, is_completed, kind FROM workout_days"),
       db.all(
         `SELECT user_id, id, week, amount, settled_at, settled_amount, issued_at, due_at
          FROM fines WHERE voided_at IS NULL ORDER BY week DESC`
       ),
+      db.all("SELECT user_id, week FROM excused_weeks"),
       db.get("SELECT current_week, challenge_start_date FROM admin_settings WHERE id = 1"),
     ]);
 
@@ -2001,11 +2052,14 @@ app.get("/api/seasons", async (req, res) => {
     const completedWeeks = Math.max(0, currentWeek - 1);
     const workoutsByUser = groupByUser(workoutRows);
     const finesByUser = groupByUser(fineRows);
+    const excusedByUser = groupByUser(excusedRows);
 
     res.json(
       users.map((user) => {
         const mine = workoutsByUser.get(user.id) || [];
         const fines = finesByUser.get(user.id) || [];
+
+        if (user.left_at) return departedView(user, fines);
 
         const state = engine.runSeason({
           userId: user.id,
@@ -2018,6 +2072,7 @@ app.get("/api/seasons", async (req, res) => {
           })),
           settledWeeks: fines.filter((r) => r.settled_at).map((r) => Number(r.week)),
           settledAmounts: recordedPayments(fines),
+          excusedWeeks: (excusedByUser.get(user.id) || []).map((r) => Number(r.week)),
           completedWeeks,
           fromWeek: joinedAtWeek(user.start_date, settings?.challenge_start_date),
         });
@@ -2092,7 +2147,7 @@ app.post("/api/fines/sync", async (req, res) => {
   try {
     const userIds = req.body.userId
       ? [req.body.userId]
-      : (await db.all("SELECT id FROM users")).map((r) => r.id);
+      : (await db.all("SELECT id FROM users WHERE left_at IS NULL")).map((r) => r.id);
 
     const results = [];
     for (const userId of userIds) {
@@ -2104,6 +2159,54 @@ app.post("/api/fines/sync", async (req, res) => {
     const retired = results.reduce((n, r) => n + r.voided.length, 0);
     debug(`Fine sync issued ${total} and voided ${retired} across ${userIds.length} player(s)`);
     res.json({ players: results.length, finesIssued: total, finesVoided: retired, results });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Which weeks a player was agreed to be out for.
+ *
+ * Admin only, and it replaces the whole list rather than adding to it, so one
+ * call is both "excuse these" and "no longer excused". Re-syncing afterwards is
+ * the point: a week that becomes excused has its fine voided, and a week that
+ * stops being excused gets billed like any other miss.
+ *
+ * The season decides nothing about what counts as a reason — the group does
+ * that between themselves, the same as it always has. This records the answer.
+ */
+app.post("/api/excused", async (req, res) => {
+  if (denyUnlessAdmin(req, res)) return;
+  try {
+    const { userId, reason } = req.body;
+    const weeks = Array.isArray(req.body.weeks) ? req.body.weeks.map(Number) : null;
+    if (!userId || !weeks || weeks.some((w) => !Number.isInteger(w) || w < 1)) {
+      res.status(400).json({ error: "Send a userId and a weeks array of week numbers" });
+      return;
+    }
+    if (!(await db.get("SELECT id FROM users WHERE id = ?", [userId]))) {
+      res.status(404).json({ error: "User not found" });
+      return;
+    }
+
+    await db.run("DELETE FROM excused_weeks WHERE user_id = ?", [userId]);
+    for (const week of weeks) {
+      await db.run(
+        `INSERT INTO excused_weeks (id, user_id, week, reason, excused_at)
+         VALUES (?, ?, ?, ?, ?)`,
+        [uuidv4(), userId, week, reason || null, new Date().toISOString()]
+      );
+    }
+
+    const { voided, state } = await syncFines(userId);
+    debug(`Excused ${userId} for weeks ${weeks.join(", ") || "(none)"}`);
+    res.json({
+      userId,
+      weeks,
+      finesVoided: voided.length,
+      outstanding: state.outstanding,
+      priceLevel: state.priceLevel,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

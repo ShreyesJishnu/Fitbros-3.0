@@ -12,7 +12,7 @@
  */
 const crypto = require("crypto");
 const db = require("./db");
-const { DDL, INDEXES, MIGRATIONS, COLUMN_PROBES } = require("./schema");
+const { DDL, INDEXES, MIGRATIONS, SCHEMA_PROBES } = require("./schema");
 const engine = require("../src/utils/seasonEngine");
 
 /**
@@ -41,13 +41,13 @@ async function runBatch(sql) {
  *
  * All three, cheaply: the first query throws if the table is missing and
  * returns nothing if the season row was never written, and each probe throws
- * if a column a migration adds is not there yet. Asking only the first one is
- * what let a live database sit a migration behind — see COLUMN_PROBES.
+ * if a table or a column is not there yet. Asking only the first one is what
+ * let a live database sit a migration behind — see SCHEMA_PROBES.
  */
 async function schemaIsReady() {
   try {
     if (!(await db.get("SELECT id FROM admin_settings WHERE id = 1"))) return false;
-    for (const probe of COLUMN_PROBES) await db.get(probe);
+    for (const probe of SCHEMA_PROBES) await db.get(probe);
     return true;
   } catch {
     return false;

@@ -9,8 +9,9 @@
  *   PORT=5050 ADMIN_KEY=test-secret node backend/server.js &
  *   node backend/scripts/verifyRules.js
  *
- * It writes and then undoes its own test data, and reseeds at the end, so the
- * database it leaves behind is the one it found. Never point it at Turso.
+ * It writes and then undoes its own test data, with one exception: the last
+ * check takes a player out of the season, which has no undo over HTTP. Reseed
+ * afterwards. Never point it at Turso.
  */
 const API = process.env.API || "http://localhost:5050/api";
 const ADMIN = process.env.ADMIN_KEY || "test-secret";
@@ -366,6 +367,100 @@ async function main() {
     });
   }
 
+  console.log("\nA week somebody was out for");
+  {
+    // Injury, and whatever else the group agrees. The week is recorded but not
+    // judged: no fine, and — the part that is easy to get wrong — no strike
+    // against the price ladder, so coming back costs what leaving did.
+    const before = await season(debtor.userId);
+    const fined = before.weeks.filter((w) => w.fine > 0).map((w) => w.week);
+
+    const excused = await call("POST", "/excused", {
+      admin: true,
+      body: { userId: debtor.userId, weeks: fined, reason: "injured" },
+    });
+    record("excusing a week needs the admin key", excused.status === 200, `-> ${excused.status}`);
+
+    const after = await season(debtor.userId);
+    record(
+      "a week they were out for costs nothing",
+      after.outstanding === 0 && after.billed === 0,
+      `owes ₹${after.outstanding}, billed ₹${after.billed}`
+    );
+    record(
+      "being out does not raise the price of coming back",
+      after.priceLevel === 1 && after.fineIfMissed === 200,
+      `level ${after.priceLevel}, a miss costs ₹${after.fineIfMissed}`
+    );
+    record(
+      "the fines for those weeks are withdrawn, not left sitting",
+      after.unsettledFines.length === 0,
+      `${after.unsettledFines.length} still listed`
+    );
+
+    const anon = await call("POST", "/excused", {
+      body: { userId: debtor.userId, weeks: [] },
+    });
+    record("a player cannot excuse themselves", anon.status === 403, `-> ${anon.status}`);
+
+    // Put it back: excusing replaces the whole list, so an empty one undoes it.
+    await call("POST", "/excused", { admin: true, body: { userId: debtor.userId, weeks: [] } });
+    const restored = await season(debtor.userId);
+    record(
+      "taking the excuse away bills the weeks again",
+      restored.outstanding === before.outstanding && restored.priceLevel === before.priceLevel,
+      `owes ₹${restored.outstanding}, was ₹${before.outstanding}`
+    );
+  }
+
+  console.log("\nLeaving the season");
+  {
+    // The pot is money that changed hands. Taking a player out used to delete
+    // their rows, and with them the record of what they had paid, so the pot
+    // shrank by whatever they had already handed over.
+    // Read the pot now, not from the list this script opened with: the checks
+    // above settle and unsettle fines, so that snapshot is already stale.
+    const before = (await call("GET", "/seasons")).body;
+    const payer = Array.isArray(before) && before.find((p) => p.paid > 0);
+    if (!payer) {
+      record("a player who has paid can be found to remove", false, "nobody has paid");
+    } else {
+      const potBefore = before.reduce((sum, p) => sum + p.paid, 0);
+
+      const gone = await call("DELETE", `/users/${payer.userId}`, { admin: true });
+      record("removing a player needs the admin key", gone.status === 200, `-> ${gone.status}`);
+
+      const roster = (await call("GET", "/users")).body;
+      record(
+        "a player who left is off the roster",
+        Array.isArray(roster) && !roster.some((u) => u.id === payer.userId),
+        `${Array.isArray(roster) ? roster.length : "?"} on the roster`
+      );
+
+      const seasons = (await call("GET", "/seasons")).body;
+      const left = Array.isArray(seasons) && seasons.find((p) => p.userId === payer.userId);
+      record(
+        "what they paid is still reported, flagged as left",
+        Boolean(left) && left.hasLeft === true && left.paid === payer.paid,
+        left ? `₹${left.paid}, hasLeft ${left.hasLeft}` : "not reported at all"
+      );
+
+      record(
+        "the pot does not shrink when somebody leaves",
+        Array.isArray(seasons) &&
+          seasons.reduce((sum, p) => sum + p.paid, 0) === potBefore,
+        `₹${potBefore} before`
+      );
+
+      const stillBilled = (await call("POST", "/fines/sync", { admin: true, body: {} })).body;
+      record(
+        "a player who left stops being billed",
+        Boolean(stillBilled) && !(stillBilled.results || []).some((r) => r.userId === payer.userId),
+        `${stillBilled?.players ?? "?"} players billed`
+      );
+    }
+  }
+
   console.log("\nThe guards that were already there");
   {
     const other = all.find((p) => p.userId !== debtor.userId);
@@ -390,7 +485,10 @@ async function main() {
     `\n${results.length - failed.length}/${results.length} passed` +
       (failed.length ? `\nFAILED: ${failed.map((f) => f.name).join(", ")}` : "")
   );
-  console.log("\nReseeding so the season is as you left it…");
+  console.log(
+    "\nA player was removed by the last check. Reseed before using this database:" +
+      "\n  node backend/scripts/seedFakeSeason.js"
+  );
   process.exit(failed.length ? 1 : 0);
 }
 

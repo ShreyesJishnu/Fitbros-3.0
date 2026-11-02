@@ -1,4 +1,4 @@
-import { GroupRow, todayLine } from "./GroupBoard";
+import { GroupRow, overdueRoll, todayLine } from "./GroupBoard";
 import { todayIndex } from "../utils/today";
 
 /**
@@ -94,5 +94,52 @@ describe("todayLine", () => {
     expect(todayLine(row({ days: [null, "session", null, null, null, null, null] })).text).toBe(
       "not yet today"
     );
+  });
+});
+
+describe("the overdue roll call", () => {
+  const DAY = 86400000;
+  const late = (amount: number, daysAgo: number) => ({
+    week: 1,
+    amount,
+    dueAt: new Date(Date.now() - daysAgo * DAY).toISOString(),
+    overdue: true,
+  });
+
+  it("names what they owe in total, not just the part that is late", () => {
+    // ₹200 past the deadline and ₹400 billed since. They owe ₹600.
+    const [first] = overdueRoll([
+      row({
+        outstanding: 600,
+        unsettledFines: [
+          late(200, 3),
+          { week: 2, amount: 400, dueAt: new Date(Date.now() + DAY).toISOString(), overdue: false },
+        ],
+      }),
+    ]);
+    expect(first.owed).toBe(600);
+    expect(first.days).toBe(3);
+  });
+
+  it("leaves out anybody whose fines are all still within the deadline", () => {
+    expect(
+      overdueRoll([
+        row({
+          outstanding: 400,
+          unsettledFines: [
+            { week: 2, amount: 400, dueAt: new Date(Date.now() + DAY).toISOString(), overdue: false },
+          ],
+        }),
+      ])
+    ).toHaveLength(0);
+  });
+
+  it("puts the biggest debt first", () => {
+    expect(
+      overdueRoll([
+        row({ userId: "small", outstanding: 200, unsettledFines: [late(200, 30)] }),
+        row({ userId: "big", outstanding: 2600, unsettledFines: [late(200, 1)] }),
+      ]).map((o) => o.userId)
+    ).toEqual(["big", "small"]);
   });
 });

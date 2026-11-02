@@ -24,6 +24,10 @@ const DDL = `
     -- What makes a player link theirs. Without it the id alone is the whole
     -- claim, and every id is public, so anyone could write as anyone.
     secret TEXT,
+    -- Stamped when a player leaves the season. Their rows stay: money that
+    -- changed hands is part of the season's record, and deleting the row took
+    -- the receipts with it. Nothing derives for them after this date.
+    left_at TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
   );
@@ -98,6 +102,19 @@ const DDL = `
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
     FOREIGN KEY (goal_id) REFERENCES goals (id) ON DELETE SET NULL
   );
+  -- Weeks the group agreed somebody was out for: injury, and whatever else the
+  -- group decides. Raw record, like a workout or a payment — the replay reads
+  -- it and judges nothing in it. Who may be excused is still settled between
+  -- people; this only writes down what they settled on.
+  CREATE TABLE IF NOT EXISTS excused_weeks (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    week INTEGER NOT NULL,
+    reason TEXT,
+    excused_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    UNIQUE(user_id, week)
+  );
   CREATE TABLE IF NOT EXISTS admin_settings (
     id INTEGER PRIMARY KEY,
     challenge_start_date TEXT NOT NULL,
@@ -119,6 +136,7 @@ const INDEXES = `
   CREATE INDEX IF NOT EXISTS idx_goal_progress_goal ON goal_progress (goal_id, recorded_at);
   CREATE INDEX IF NOT EXISTS idx_fines_user ON fines (user_id);
   CREATE INDEX IF NOT EXISTS idx_fines_unsettled ON fines (user_id, settled_at);
+  CREATE INDEX IF NOT EXISTS idx_excused_user ON excused_weeks (user_id);
 `;
 
 /**
@@ -149,6 +167,7 @@ const MIGRATIONS = [
   "ALTER TABLE fines ADD COLUMN voided_reason TEXT",
   "ALTER TABLE users ADD COLUMN last_seen_at TEXT",
   "ALTER TABLE users ADD COLUMN secret TEXT",
+  "ALTER TABLE users ADD COLUMN left_at TEXT",
 ];
 
 /**
@@ -173,4 +192,20 @@ const COLUMN_PROBES = Object.entries(
   }, {})
 ).map(([table, columns]) => `SELECT ${columns.join(", ")} FROM ${table} LIMIT 0`);
 
-module.exports = { DDL, INDEXES, MIGRATIONS, COLUMN_PROBES };
+/**
+ * The tables a cold start expects to exist.
+ *
+ * COLUMN_PROBES catches a database that is a migration behind, but it is blind
+ * to a table that shipped later: a whole new CREATE TABLE adds no ALTER, so
+ * every probe passes and the boot skips the DDL that would have made it. That
+ * is the same wrong "yes" that cost production once already, one level up.
+ * Derived from the DDL, so a new table is checked for free.
+ */
+const TABLE_PROBES = [...DDL.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(
+  ([, table]) => `SELECT 1 FROM ${table} LIMIT 0`
+);
+
+/** Everything a boot asks before deciding the schema is current. */
+const SCHEMA_PROBES = [...TABLE_PROBES, ...COLUMN_PROBES];
+
+module.exports = { DDL, INDEXES, MIGRATIONS, COLUMN_PROBES, TABLE_PROBES, SCHEMA_PROBES };
