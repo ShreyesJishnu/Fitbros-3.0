@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { Goal } from "../types";
+import { Goal, WorkoutKind } from "../types";
 import { apiFetch } from "../services/http";
 import { GoalTrack, Reading, goalReadings } from "./GoalBoard";
+import DayCells from "./DayCells";
+import { todayIndex } from "../utils/today";
+import { useScrollLock } from "../utils/scrollLock";
 
 /**
  * One player's season, opened from the group list.
@@ -24,7 +27,16 @@ interface Season {
   paid: number;
   outstanding: number;
   potEligible: boolean;
-  weeks: { week: number; outcome: "clean" | "missed" | "excused"; credits: number; fine: number }[];
+  weeks: {
+    week: number;
+    outcome: "clean" | "missed" | "excused";
+    credits: number;
+    fine: number;
+    /** The days behind the score, Monday first. */
+    days: (WorkoutKind | null)[];
+  }[];
+  /** The week still running, day by day. */
+  days: (WorkoutKind | null)[];
   currentWeekProgress: { week: number; credits: number; needed: number };
 }
 
@@ -33,19 +45,42 @@ const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 /** Credit reads as 3 or 3.5, never 3.0. */
 const credit = (n: number) => (Number.isInteger(n) ? String(n) : n.toFixed(1));
 
-const OUTCOME_STYLE = {
-  clean: "bg-clean-500",
-  missed: "bg-owed-500",
-  // Neither kept nor missed. Grey says "not judged" where the two live colours
-  // both say "scored".
-  excused: "bg-line-soft",
-} as const;
+/**
+ * What a week came to, in the fewest words that are still true. Colour is the
+ * second signal here, never the only one — the row says it as well.
+ */
+const outcomeNote = (w: { outcome: string; credits: number; fine: number }) => {
+  if (w.outcome === "excused") return { text: "away", tone: "text-ink-muted" };
+  if (w.outcome === "clean") return { text: `${credit(w.credits)} clean`, tone: "text-clean-600" };
+  return { text: `${credit(w.credits)} · ${rupees(w.fine)}`, tone: "text-owed-600" };
+};
+
+/** One week's row: which week, what they did, what it came to. */
+const WeekRow: React.FC<{
+  label: string;
+  days: (WorkoutKind | null)[];
+  note: { text: string; tone: string };
+  name: string;
+  today?: number;
+}> = ({ label, days, note, name, today }) => (
+  <li className="py-2 flex items-center gap-3">
+    <span className="w-12 shrink-0 text-xs font-semibold text-ink-muted tnum">{label}</span>
+    <div className="flex-1 min-w-0">
+      <DayCells days={days} label={`${name}, ${label}`} today={today} />
+    </div>
+    <span className={`w-20 shrink-0 text-right text-xs font-semibold tnum ${note.tone}`}>
+      {note.text}
+    </span>
+  </li>
+);
 
 const PlayerSheet: React.FC<{ userId: string; onClose: () => void }> = ({ userId, onClose }) => {
   const [season, setSeason] = useState<Season | null>(null);
   const [goals, setGoals] = useState<Goal[]>([]);
   const [progress, setProgress] = useState<Record<string, Reading[]>>({});
   const closeRef = useRef<HTMLButtonElement>(null);
+
+  useScrollLock();
 
   const load = useCallback(async () => {
     const [seasonRes, goalsRes] = await Promise.all([
@@ -92,7 +127,8 @@ const PlayerSheet: React.FC<{ userId: string; onClose: () => void }> = ({ userId
       onClick={onClose}
     >
       <div
-        className="bg-paper w-full sm:max-w-xl max-h-[88vh] overflow-y-auto rounded-t-2xl sm:rounded-2xl p-5 pb-8"
+        className="bg-paper w-full sm:max-w-xl max-h-[88vh] overflow-y-auto overscroll-contain
+                   rounded-t-2xl sm:rounded-2xl p-5 pb-8"
         onClick={(e) => e.stopPropagation()}
       >
         {!season ? (
@@ -131,19 +167,35 @@ const PlayerSheet: React.FC<{ userId: string; onClose: () => void }> = ({ userId
               ))}
             </dl>
 
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted mt-5 mb-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted mt-5 mb-1">
               Week by week
             </p>
-            <div className="flex gap-1">
-              {season.weeks.map((w) => (
-                <div
+            {/* Newest first: what somebody has been doing lately is the question
+                this sheet gets opened to answer. */}
+            <ul className="divide-y divide-line border-t border-line">
+              <WeekRow
+                label={`Wk ${season.currentWeekProgress.week}`}
+                days={season.days}
+                name={season.name}
+                today={todayIndex()}
+                note={{
+                  text: `${credit(season.currentWeekProgress.credits)}/${season.currentWeekProgress.needed}`,
+                  tone: "text-ink",
+                }}
+              />
+              {[...season.weeks].reverse().map((w) => (
+                <WeekRow
                   key={w.week}
-                  title={`Week ${w.week}: ${credit(w.credits)} workouts${w.fine ? ` — ${rupees(w.fine)}` : ""}`}
-                  className={`h-7 flex-1 rounded-md ${OUTCOME_STYLE[w.outcome]}`}
+                  label={`Wk ${w.week}`}
+                  days={w.days ?? Array(7).fill(null)}
+                  name={season.name}
+                  note={outcomeNote(w)}
                 />
               ))}
-              <div className="h-7 flex-1 rounded-md border-2 border-dashed border-ink-faint" />
-            </div>
+            </ul>
+            <p className="text-[11px] text-ink-muted mt-2">
+              Filled is a workout, outlined is a 10k-step day. This week is still running.
+            </p>
 
             <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted mt-6 mb-2">
               Goals

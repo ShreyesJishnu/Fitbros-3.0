@@ -6,6 +6,7 @@ import PlayerSheet from "./PlayerSheet";
 import GroupStats from "./GroupStats";
 import { shareCard } from "../utils/shareCard";
 import { apiFetch } from "../services/http";
+import DayCells, { DAY_LABEL, DAY_STYLE } from "./DayCells";
 import { PAYMENT_GRACE_HOURS, SEASON_WEEKS } from "../utils/seasonEngine";
 import { todayIndex } from "../utils/today";
 
@@ -105,48 +106,11 @@ const OUTCOME_STYLE = {
 } as const;
 
 const DAYS = ["M", "T", "W", "T", "F", "S", "S"];
-const DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-/**
- * The same two fills My season uses for a logged day, so a session means the
- * same thing on both screens.
- */
-const DAY_STYLE: Record<WorkoutKind, string> = {
-  session: "bg-clean-500 border-clean-500",
-  // A bare block has no label to lean on the way My season's buttons do, so the
-  // half a workout is carried by a heavier edge, not by the fill alone.
-  steps: "bg-clean-100 border-2 border-clean-500",
-};
-
-const DAY_LABEL: Record<WorkoutKind, string> = { session: "a workout", steps: "10k steps" };
-
-/**
- * The week so far, day by day. Reads as a claim, not a clock: a day can be
- * filled in late.
- *
- * Today's ring is drawn inset. Monday sits flush against the left edge of a
- * section that clips its overflow, so an outside ring — Tailwind's default —
- * loses its left side on every row, and its offset paints the page colour
- * rather than whatever the row is sitting on.
- */
-const DayStrip: React.FC<{ row: GroupRow }> = ({ row }) => {
-  const today = todayIndex();
-  return (
-    <div className="flex gap-1" role="list" aria-label={`${row.name}, this week`}>
-      {row.days.map((kind, i) => (
-        <div
-          key={i}
-          role="listitem"
-          title={`${DAY_NAMES[i]}: ${kind ? DAY_LABEL[kind] : "nothing logged"}`}
-          aria-label={`${DAY_NAMES[i]}: ${kind ? DAY_LABEL[kind] : "nothing logged"}`}
-          className={`h-6 flex-1 rounded-md border ${
-            kind ? DAY_STYLE[kind] : "bg-paper-card border-line"
-          } ${i === today ? "ring-2 ring-inset ring-ink" : ""}`}
-        />
-      ))}
-    </div>
-  );
-};
+/** The week so far. Reads as a claim, not a clock: a day can be filled in late. */
+const DayStrip: React.FC<{ row: GroupRow }> = ({ row }) => (
+  <DayCells days={row.days} label={`${row.name}, this week`} today={todayIndex()} />
+);
 
 /**
  * What the group actually wants to know, in words — colour alone never says it.

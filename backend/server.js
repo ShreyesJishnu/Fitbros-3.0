@@ -1963,6 +1963,20 @@ function departedView(user, fines) {
 }
 
 /**
+ * One week, Monday first: the kind logged on each day, or null. Monday is 1.
+ */
+const daysOf = (workoutRows, week) =>
+  Array.from({ length: 7 }, (_, i) => {
+    const row = workoutRows.find(
+      (r) =>
+        Number(r.week) === week &&
+        Number(r.day_of_week) === i + 1 &&
+        Boolean(r.is_completed)
+    );
+    return row ? row.kind || "session" : null;
+  });
+
+/**
  * The one shape a season is reported in. Both the single-player route and the
  * batch route build their response here, so they cannot drift apart.
  */
@@ -1982,7 +1996,9 @@ function seasonView(user, { state, currentWeek, workoutRows }, unsettled) {
     paid: state.paid,
     outstanding: state.outstanding,
     potEligible: state.potEligible,
-    weeks: state.weeks,
+    // Every closed week with the days behind it, so opening somebody's season
+    // shows what they actually did and not just how it scored.
+    weeks: state.weeks.map((w) => ({ ...w, days: daysOf(workoutRows, w.week) })),
     // Whether this person has ever opened the app, which is the only thing that
     // tells an empty week apart from someone who never got in.
     lastSeenAt: user.last_seen_at ?? null,
@@ -1990,16 +2006,8 @@ function seasonView(user, { state, currentWeek, workoutRows }, unsettled) {
     // the pot can count what they paid before they went.
     hasLeft: Boolean(user.left_at),
     // The week still running, day by day, so the group can see who trained
-    // today without opening anybody's season. Monday is 1.
-    days: Array.from({ length: 7 }, (_, i) => {
-      const row = workoutRows.find(
-        (r) =>
-          Number(r.week) === currentWeek &&
-          Number(r.day_of_week) === i + 1 &&
-          Boolean(r.is_completed)
-      );
-      return row ? row.kind || "session" : null;
-    }),
+    // today without opening anybody's season.
+    days: daysOf(workoutRows, currentWeek),
     // Not scored yet — the week is still running.
     currentWeekProgress: {
       week: currentWeek,
