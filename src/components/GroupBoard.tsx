@@ -6,7 +6,7 @@ import PlayerSheet from "./PlayerSheet";
 import GroupStats from "./GroupStats";
 import { shareCard } from "../utils/shareCard";
 import { apiFetch } from "../services/http";
-import DayCells, { DAY_LABEL, DAY_STYLE } from "./DayCells";
+import DayCells from "./DayCells";
 import { PAYMENT_GRACE_HOURS, SEASON_WEEKS } from "../utils/seasonEngine";
 import { todayIndex } from "../utils/today";
 

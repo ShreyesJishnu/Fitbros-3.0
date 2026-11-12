@@ -82,7 +82,10 @@ attached. The rules are the product; the app only reports what the rules decide.
 - Verify in the browser, not by assertion. A screenshot or a measured value, not
   "should work".
 - Non-trivial logic leaves one runnable check behind (`npm test`).
-- Run `npx tsc --noEmit` before saying something is done.
+- Run `CI=true npm run build` before saying something is done. It is the command
+  the deploy runs, and it fails on things `npx tsc --noEmit` is happy with — an
+  unused import is a warning to the compiler and a fatal error to the build.
+  That has broken a deploy once.
 - Local dev: `nohup env PORT=5050 node backend/server.js &` and `npm start`.
   `node backend/scripts/seedFakeSeason.js` seeds nine players covering every
   state the rules can produce. It refuses to run against a Turso database.
