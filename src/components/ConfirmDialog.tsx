@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from "react";
 import { AlertTriangle } from "lucide-react";
+import { useScrollLock } from "../utils/scrollLock";
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -23,6 +24,8 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   onCancel,
 }) => {
   const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useScrollLock(isOpen);
 
   // Escape cancels. The handler is read through a ref so an inline onCancel
   // can't re-run the focus effect below on every render.

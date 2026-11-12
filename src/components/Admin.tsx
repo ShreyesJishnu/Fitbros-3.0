@@ -10,6 +10,7 @@ import {
   Link as LinkIcon,
   Check
 } from 'lucide-react';
+import { useScrollLock } from '../utils/scrollLock';
 import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './ToastContext';
 import { apiFetch, playerLink } from '../services/http';
@@ -55,6 +56,7 @@ const Admin: React.FC<AdminProps> = ({
 }) => {
   const { showToast } = useToast();
   const [showAddUser, setShowAddUser] = useState(false);
+  useScrollLock(showAddUser);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [checkingFines, setCheckingFines] = useState(false);
   const [startDate, setStartDate] = useState(adminSettings.challengeStartDate);
@@ -594,7 +596,7 @@ const Admin: React.FC<AdminProps> = ({
       {/* Add/Edit User Modal */}
       {showAddUser && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-paper-card rounded-xl p-4 md:p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto">
+          <div className="bg-paper-card rounded-xl p-4 md:p-6 w-full max-w-lg max-h-[90vh] overflow-y-auto overscroll-contain">
             <h3 className="text-lg font-semibold text-ink mb-4">
               {editingUser ? 'Edit player' : 'Add new player'}
             </h3>
