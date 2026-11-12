@@ -1,0 +1,45 @@
+# The checks that decide whether a push can ship.
+#
+# `npm run build` is the one that matters: it is the exact command Vercel runs,
+# and it fails on things `tsc --noEmit` is happy with — an unused import is a
+# warning to the compiler and, with CI set, a fatal error to the build. A commit
+# once sat unshipped for 21 hours because the build failed on Vercel, Vercel
+# kept serving the old deployment, and nothing said so.
+#
+# verifyRules.js is not here: it drives a running server against a seeded
+# database and writes to it. It stays a manual step before anything near money.
+name: checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Types
+        run: npx tsc --noEmit
+
+      - name: Tests
+        run: npm test -- --watchAll=false
+        env:
+          CI: true
+
+      - name: Schema probes
+        run: node backend/scripts/checkSchema.js
+
+      - name: Build, exactly as the deploy runs it
+        run: npm run build
+        env:
+          CI: true

@@ -346,41 +346,6 @@ app.get("/api/users", async (req, res) => {
   }
 });
 
-app.get("/api/users/:id", async (req, res) => {
-  try {
-    const row = await db.get(
-      `SELECT
-        id, name, avatar, start_date, price_level,
-        clean_weeks, missed_weeks,
-        created_at, updated_at
-      FROM users WHERE id = ?`,
-      [req.params.id]
-    );
-
-    if (!row) {
-      res.status(404).json({ error: "User not found" });
-      return;
-    }
-
-    const user = {
-      id: row.id,
-      name: row.name,
-      avatar: row.avatar,
-      startDate: row.start_date,
-      priceLevel: Number(row.price_level),
-      cleanWeeks: Number(row.clean_weeks),
-      missedWeeks: Number(row.missed_weeks),
-      // Missing never removes you from the season.
-      isActive: true,
-    };
-
-    res.json(user);
-  } catch (err) {
-    console.error("Error fetching user:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.post("/api/users", async (req, res) => {
   if (denyUnlessAdmin(req, res)) return;
   const { name, avatar, priceLevel, cleanWeeks, missedWeeks } = req.body;
@@ -677,72 +642,6 @@ app.get("/api/workouts", async (req, res) => {
   }
 });
 
-app.get("/api/workouts/user/:userId", async (req, res) => {
-  try {
-    const rows = await db.all(
-      `SELECT * FROM workout_days
-      WHERE user_id = ?
-      ORDER BY week DESC, day_of_week ASC`,
-      [req.params.userId]
-    );
-
-    const workouts = rows.map((row) => ({
-      id: row.id,
-      userId: row.user_id,
-      week: row.week,
-      dayOfWeek: row.day_of_week,
-      kind: row.kind || "session",
-      date: row.date,
-      isCompleted: Boolean(row.is_completed),
-      workoutType: row.workout_type,
-      notes: row.notes,
-      markedBy: row.marked_by,
-      timestamp: row.timestamp,
-    }));
-
-    debug(
-      `Fetched ${workouts.length} workouts for user ${req.params.userId}`
-    );
-    res.json(workouts);
-  } catch (err) {
-    console.error("Error fetching user workouts:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Ahead of /:userId/:week, or Express reads "stats" as a user id and the
-// week as a uuid, and the endpoint quietly answers with an empty list.
-app.get("/api/workouts/stats/:userId", async (req, res) => {
-  try {
-    const row = await db.get(
-      `SELECT
-        COUNT(*) as total_workouts,
-        SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed_workouts,
-        COUNT(DISTINCT week) as weeks_with_data,
-        MAX(week) as latest_week
-      FROM workout_days
-      WHERE user_id = ?`,
-      [req.params.userId]
-    );
-
-    const stats = {
-      totalWorkouts: row.total_workouts || 0,
-      completedWorkouts: row.completed_workouts || 0,
-      weeksWithData: row.weeks_with_data || 0,
-      latestWeek: row.latest_week || 0,
-      completionRate:
-        row.total_workouts > 0
-          ? Math.round((row.completed_workouts / row.total_workouts) * 100)
-          : 0,
-    };
-
-    res.json(stats);
-  } catch (err) {
-    console.error("Error fetching workout stats:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.get("/api/workouts/:userId/:week", async (req, res) => {
   try {
     const rows = await db.all(
@@ -1003,8 +902,7 @@ app.get("/api/goals/user/:userId", async (req, res) => {
 });
 
 /**
- * The one shape a progress reading is reported in. Both the single-goal route
- * and the batch route map through it, so they cannot drift apart.
+ * The one shape a progress reading is reported in.
  */
 const progressRow = (r) => ({
   id: r.id,
@@ -1013,12 +911,13 @@ const progressRow = (r) => ({
   recordedAt: r.recorded_at,
 });
 
-// Every goal's readings in one shot, keyed by goal id. Same arrays as
-// /api/goals/:id/progress, but one table read instead of one per goal — Turso
-// charges a round trip each. Registered above /api/goals/:id so Express doesn't
-// read "progress" as a goal id.
+// Every goal's readings in one shot, keyed by goal id. The board asked once per
+// goal before this, and Turso charges a round trip each.
 //
-// ponytail: returns the whole table — a season of readings is a few hundred
+// Keep it above any future GET /api/goals/:id, or Express reads "progress" as a
+// goal id and this answers with nothing.
+//
+// shortcut: returns the whole table — a season of readings is a few hundred
 // rows. Take a ?userId= filter if that ever stops being true.
 app.get("/api/goals/progress", async (req, res) => {
   try {
@@ -1033,40 +932,6 @@ app.get("/api/goals/progress", async (req, res) => {
     }
     res.json(byGoal);
   } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.get("/api/goals/:id", async (req, res) => {
-  try {
-    const row = await db.get(`SELECT * FROM goals WHERE id = ?`, [
-      req.params.id,
-    ]);
-
-    if (!row) {
-      res.status(404).json({ error: "Goal not found" });
-      return;
-    }
-
-    const goal = {
-      id: row.id,
-      userId: row.user_id,
-      category: row.category,
-      description: row.description,
-      baseline: row.baseline,
-      target: row.target,
-      baselineValue: row.baseline_value != null ? Number(row.baseline_value) : undefined,
-      targetValue: row.target_value != null ? Number(row.target_value) : undefined,
-      unit: row.unit,
-      isCompleted: Boolean(row.is_completed),
-      completedDate: row.completed_date,
-      createdDate: row.created_date,
-      proofs: [],
-    };
-
-    res.json(goal);
-  } catch (err) {
-    console.error("Error fetching goal:", err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -1316,37 +1181,16 @@ app.delete("/api/goals/:id", async (req, res) => {
   }
 });
 
-app.get("/api/goals/stats/:userId", async (req, res) => {
-  try {
-    const row = await db.get(
-      `SELECT
-        COUNT(*) as total_goals,
-        SUM(CASE WHEN is_completed = 1 THEN 1 ELSE 0 END) as completed_goals,
-        COUNT(DISTINCT category) as categories_covered
-      FROM goals
-      WHERE user_id = ?`,
-      [req.params.userId]
-    );
-
-    const stats = {
-      totalGoals: row.total_goals || 0,
-      completedGoals: row.completed_goals || 0,
-      categoriesCovered: row.categories_covered || 0,
-      completionRate:
-        row.total_goals > 0
-          ? Math.round((row.completed_goals / row.total_goals) * 100)
-          : 0,
-    };
-
-    res.json(stats);
-  } catch (err) {
-    console.error("Error fetching goal stats:", err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
 app.get("/api/settings", async (req, res) => {
   try {
+    const row = await db.get(
+      "SELECT challenge_start_date, challenge_end_date, current_week, is_active FROM admin_settings WHERE id = 1"
+    );
+    if (!row) {
+      res.status(404).json({ error: "Season not configured" });
+      return;
+    }
+
     // The season keeps its own time here, not on a schedule.
     //
     // A nightly job needed an env var, a cron registration and a plan that
@@ -1357,21 +1201,16 @@ app.get("/api/settings", async (req, res) => {
     //
     // A failure here must not take the whole app down with it: the week being
     // a day late is survivable, a settings route that 500s is not.
-    await windSeasonForward().catch((err) =>
-      console.error("Winding the season forward failed:", err.message)
-    );
+    const wound = await windSeasonForward(row).catch((err) => {
+      console.error("Winding the season forward failed:", err.message);
+      return null;
+    });
 
-    const row = await db.get(
-      "SELECT challenge_start_date, challenge_end_date, current_week, is_active FROM admin_settings WHERE id = 1"
-    );
-    if (!row) {
-      res.status(404).json({ error: "Season not configured" });
-      return;
-    }
     res.json({
       challengeStartDate: row.challenge_start_date,
       challengeEndDate: row.challenge_end_date,
-      currentWeek: Number(row.current_week),
+      // The week the winding settled on, which is the row's own unless it moved.
+      currentWeek: wound?.currentWeek ?? Number(row.current_week),
       isActive: Boolean(row.is_active),
     });
   } catch (err) {
@@ -1395,8 +1234,24 @@ async function billClosedWeeks(from, to) {
   if (to === from) return results;
   try {
     const players = await db.all("SELECT id, name FROM users WHERE left_at IS NULL");
-    for (const player of players) {
-      const { issued, voided } = await syncFines(player.id);
+    // Together, not one after another. Each player costs about seven round
+    // trips to a database that is a network away, and this runs inside the
+    // request that happens to be first through the door on a Monday — ten
+    // players in series was most of a serverless function's time limit.
+    // They touch a row each and the fines table is unique on (user, week), so
+    // nothing here depends on the order they finish in.
+    const billed = await Promise.allSettled(
+      players.map(async (player) => ({ player, ...(await syncFines(player.id)) }))
+    );
+
+    // allSettled, not all: `all` rejects on the first failure while the rest are
+    // still in flight, and those would write their fines after the rollback
+    // below had already put the week back. Everyone lands, then we decide.
+    const failed = billed.find((r) => r.status === "rejected");
+    if (failed) throw failed.reason;
+
+    for (const { value } of billed) {
+      const { player, issued, voided } = value;
       if (issued.length || voided.length) {
         results.push({ userId: player.id, name: player.name, issued, voided });
       }
@@ -1534,10 +1389,14 @@ app.put("/api/settings", async (req, res) => {
  * week the calendar implies rather than adding one, so five calls on a Monday
  * leave week 2, and a week nobody called it catches up on the next call.
  */
-async function windSeasonForward() {
-  const row = await db.get(
-    "SELECT challenge_start_date, current_week, is_active FROM admin_settings WHERE id = 1"
-  );
+async function windSeasonForward(settings) {
+  // Callers that have already read the season row pass it in. /api/settings
+  // runs on every page load and used to read the same row twice.
+  const row =
+    settings ??
+    (await db.get(
+      "SELECT challenge_start_date, current_week, is_active FROM admin_settings WHERE id = 1"
+    ));
   if (!row) return { moved: false, reason: "season not configured" };
 
   const from = Number(row.current_week);
@@ -1592,18 +1451,6 @@ app.get("/api/cron/advance-week", async (req, res) => {
 // The rules engine owns this — the UI draws its bar from the same function, so
 // the server and the board cannot disagree about what "at target" means.
 const progressFraction = engine.goalProgressFraction;
-
-app.get("/api/goals/:id/progress", async (req, res) => {
-  try {
-    const rows = await db.all(
-      "SELECT id, value, note, recorded_at FROM goal_progress WHERE goal_id = ? ORDER BY recorded_at ASC, id ASC",
-      [req.params.id]
-    );
-    res.json(rows.map(progressRow));
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 // Progress is appended, never overwritten — the history is the evidence Rule 01 asks for.
 app.post("/api/goals/:id/progress", async (req, res) => {

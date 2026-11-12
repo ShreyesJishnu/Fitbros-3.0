@@ -6,18 +6,22 @@
  * answered 500. This rebuilds that exact shape in memory and asserts the probe
  * catches it — and that a fully migrated database still passes.
  *
+ * A whole missing table is the same mistake one level up: it adds no ALTER, so
+ * a probe built only from the migrations never looks for it. That shape is
+ * rebuilt here too.
+ *
  *   node backend/scripts/checkSchema.js
  */
 const assert = require("assert");
 const { createClient } = require("@libsql/client");
-const { DDL, MIGRATIONS, COLUMN_PROBES } = require("../schema");
+const { DDL, MIGRATIONS, SCHEMA_PROBES, COLUMN_PROBES } = require("../schema");
 
 /** The one question a boot asks, against any client. */
 async function ready(client) {
   try {
     const seeded = await client.execute("SELECT id FROM admin_settings WHERE id = 1");
     if (!seeded.rows[0]) return false;
-    for (const probe of COLUMN_PROBES) await client.execute(probe);
+    for (const probe of SCHEMA_PROBES) await client.execute(probe);
     return true;
   } catch {
     return false;
@@ -59,7 +63,17 @@ async function main() {
   }
 
   assert.strictEqual(await ready(client), true, "a migrated database failed as stale");
-  console.log(`PASS  ${COLUMN_PROBES.length} probes cover ${MIGRATIONS.length} migrations`);
+
+  // The other way a database is behind: a table that shipped after it was made.
+  // No ALTER names it, so only a probe built from the DDL can miss it.
+  const newest = [...DDL.matchAll(/CREATE TABLE IF NOT EXISTS (\w+)/g)].map(([, t]) => t).pop();
+  await client.execute(`DROP TABLE ${newest}`);
+  assert.strictEqual(
+    await ready(client),
+    false,
+    `a database with no ${newest} table passed as ready`
+  );
+  console.log(`PASS  ${SCHEMA_PROBES.length} probes cover every table and ${MIGRATIONS.length} migrations`);
 }
 
 main().catch((err) => {
