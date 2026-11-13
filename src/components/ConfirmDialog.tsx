@@ -49,12 +49,12 @@ const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return (
     <div
-      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50"
+      className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-backdrop"
       role="dialog"
       aria-modal="true"
       aria-labelledby="confirm-dialog-title"
     >
-      <div className="bg-paper-card rounded-xl p-6 w-full max-w-sm shadow-xl">
+      <div className="bg-paper-card rounded-xl p-6 w-full max-w-sm shadow-xl animate-dialog">
         <div className="flex items-start gap-4">
           {isDestructive && (
             <div className="flex-shrink-0 w-10 h-10 rounded-full bg-owed-100 flex items-center justify-center">

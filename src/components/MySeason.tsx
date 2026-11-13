@@ -11,6 +11,7 @@ import { User, WorkoutDay, WorkoutKind } from "../types";
 import { apiFetch, isAdmin } from "../services/http";
 import { todayIndex } from "../utils/today";
 import { celebrate } from "../utils/confetti";
+import { Rupees } from "../utils/countUp";
 import { useToast } from "./ToastContext";
 import {
   CREDIT_BY_KIND,
@@ -80,6 +81,37 @@ const OUTCOME_STYLE = {
   // both say "scored".
   excused: "bg-line-soft",
 } as const;
+
+/**
+ * How deep into an unbroken clean run each week sits.
+ *
+ * A run is the thing the rules actually reward — two in a row halves what a
+ * miss costs — and the strip gave every clean week the same green, so four
+ * scattered weeks looked exactly like four in a row. An excused week carries a
+ * run across without extending it: that is the rule, it neither breaks a clean
+ * streak nor builds one.
+ */
+export const cleanRun = (weeks: { outcome: string }[]): number[] => {
+  let run = 0;
+  return weeks.map((w) => {
+    if (w.outcome === "missed") {
+      run = 0;
+      return 0;
+    }
+    if (w.outcome === "excused") return 0;
+    run += 1;
+    return run;
+  });
+};
+
+/* Deeper with every week held. The steps intensify on both grounds — 600 and
+   700 are darker than 500 on paper and lighter than it in the dark, so a run
+   reads as a run either way round. */
+const CLEAN_HEAT = ["bg-clean-500", "bg-clean-500", "bg-clean-600", "bg-clean-700"] as const;
+const heat = (run: number) => CLEAN_HEAT[Math.min(run, CLEAN_HEAT.length - 1)];
+
+/** The streak number itself, coloured by the same scale as the strip. */
+const STREAK_TEXT = ["text-ink", "text-ink", "text-clean-600", "text-clean-700"] as const;
 
 const OUTCOME_LABEL = { clean: "Clean", missed: "Fined", excused: "Away" } as const;
 
@@ -161,17 +193,31 @@ const DayGrid: React.FC<{
   </div>
 );
 
-/** The season so far, plus the week still running, as one strip. */
-const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => (
+/**
+ * The season so far, plus the week still running, as one strip.
+ *
+ * Builds itself from the baseline when the screen arrives, a bar at a time.
+ * The stagger is capped: by week twenty an uncapped one would still be drawing
+ * while somebody was trying to read it.
+ */
+const STAGGER_MS = 16;
+const STAGGER_CAP = 20;
+
+const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => {
+  const runs = cleanRun(view.weeks);
+  return (
   <div className="flex gap-1" role="list" aria-label={`${view.name}'s weeks`}>
-    {view.weeks.map((w) => (
+    {view.weeks.map((w, i) => (
       <div
         key={w.week}
         role="listitem"
         title={`Week ${w.week}: ${credit(w.credits)} workouts — ${OUTCOME_LABEL[w.outcome]}${
-          w.fine ? ` (${rupees(w.fine)})` : ""
+          runs[i] > 1 ? `, ${runs[i]} in a row` : ""
+        }${w.fine ? ` (${rupees(w.fine)})` : ""}`}
+        style={{ animationDelay: `${Math.min(i, STAGGER_CAP) * STAGGER_MS}ms` }}
+        className={`flex-1 rounded-md h-8 animate-grow ${
+          w.outcome === "clean" ? heat(runs[i]) : OUTCOME_STYLE[w.outcome]
         }`}
-        className={`flex-1 rounded-md h-8 ${OUTCOME_STYLE[w.outcome]}`}
       />
     ))}
     {/*
@@ -190,8 +236,11 @@ const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => (
           title={`Week ${week}: ${credit(credits)} of ${needed}${
             clean ? " — clean, and still running" : " so far — still running"
           }`}
+          style={{
+            animationDelay: `${Math.min(view.weeks.length, STAGGER_CAP) * STAGGER_MS}ms`,
+          }}
           className={`flex-1 rounded-md border-2 border-dashed relative overflow-hidden h-8
-            transition-colors duration-300 ease-settle ${
+            animate-grow transition-colors duration-300 ease-settle ${
             clean ? "border-clean-500 bg-clean-500" : "border-ink-faint"
           }`}
         >
@@ -213,7 +262,8 @@ const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => (
       );
     })()}
   </div>
-);
+  );
+};
 
 
 /**
@@ -553,11 +603,19 @@ const MySeason: React.FC<MySeasonProps> = ({
             </div>
             <div className="py-4 pr-4 sm:px-4 border-b border-line">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Streak</dt>
-              <dd className="display text-2xl tnum mt-0.5 text-ink">{me.cleanStreak}</dd>
+              <dd
+                className={`display text-2xl tnum mt-0.5 ${
+                  STREAK_TEXT[Math.min(me.cleanStreak, STREAK_TEXT.length - 1)]
+                }`}
+              >
+                {me.cleanStreak}
+              </dd>
             </div>
             <div className="py-4 pr-4 sm:px-4 border-b border-line">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Paid in</dt>
-              <dd className="display text-2xl tnum mt-0.5 text-ink">{rupees(me.paid)}</dd>
+              <dd className="display text-2xl tnum mt-0.5 text-ink">
+                <Rupees value={me.paid} />
+              </dd>
             </div>
             <div className="py-4 pr-4 sm:px-4 border-b border-line">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Fined weeks</dt>

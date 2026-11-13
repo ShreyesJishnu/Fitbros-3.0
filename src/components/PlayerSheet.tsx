@@ -120,7 +120,8 @@ const PlayerSheet: React.FC<{ userId: string; onClose: () => void }> = ({ userId
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-ink/50
+                 backdrop-blur-sm animate-backdrop"
       role="dialog"
       aria-modal="true"
       aria-label={season ? `${season.name}'s season` : "Player"}
@@ -128,7 +129,7 @@ const PlayerSheet: React.FC<{ userId: string; onClose: () => void }> = ({ userId
     >
       <div
         className="bg-paper w-full sm:max-w-xl max-h-[88vh] overflow-y-auto overscroll-contain
-                   rounded-t-2xl sm:rounded-2xl p-5 pb-8"
+                   rounded-t-2xl sm:rounded-2xl p-5 pb-8 animate-sheet"
         onClick={(e) => e.stopPropagation()}
       >
         {!season ? (

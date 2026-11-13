@@ -114,6 +114,10 @@ html {
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
+    /* A staggered strip holds each bar at nothing until its delay elapses, so
+       zeroing only the duration would leave somebody who asked for no motion
+       watching an empty strip for half a second. */
+    animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
   }
 }
@@ -166,4 +170,75 @@ code {
 
 .animate-pop {
   animation: pop 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+/*
+ * Something that covers the page arrives from where it was opened: up from the
+ * bottom edge on a phone, where a sheet is anchored, and settling in place on a
+ * wide screen, where it is centred and has no edge to come from.
+ */
+@keyframes sheet-rise {
+  from {
+    opacity: 0;
+    transform: translateY(100%);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes dialog-settle {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animate-sheet {
+  animation: sheet-rise 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (min-width: 640px) {
+  .animate-sheet {
+    animation: dialog-settle 0.2s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+}
+
+.animate-dialog {
+  animation: dialog-settle 0.18s cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+.animate-backdrop {
+  animation: backdrop-in 0.2s ease-out;
+}
+
+/* The season strip builds itself from the baseline, left to right, so a record
+   reads as something that was put together week by week rather than a bar chart
+   that was always there. `both` holds a bar at nothing until its turn. */
+@keyframes grow-up {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+.animate-grow {
+  transform-origin: bottom;
+  animation: grow-up 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
 }

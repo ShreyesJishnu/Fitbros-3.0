@@ -9,6 +9,7 @@ import { apiFetch } from "../services/http";
 import DayCells from "./DayCells";
 import { PAYMENT_GRACE_HOURS, SEASON_WEEKS } from "../utils/seasonEngine";
 import { todayIndex } from "../utils/today";
+import { Rupees } from "../utils/countUp";
 
 /**
  * The group, at group scale: who is where, what the season has cost everyone,
@@ -287,12 +288,14 @@ const GroupBoard: React.FC<GroupBoardProps> = ({ currentUser, goals }) => {
           </div>
           <div className="py-4 pr-4 sm:px-4 border-b border-line">
             <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">In the pot</dt>
-            <dd className="display text-3xl mt-1 tnum text-ink">{rupees(paid)}</dd>
+            <dd className="display text-3xl mt-1 tnum text-ink">
+              <Rupees value={paid} />
+            </dd>
           </div>
           <div className="py-4 pr-4 sm:px-4 border-b border-line">
             <dt className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">Outstanding</dt>
             <dd className={`display text-3xl mt-1 tnum ${owed ? "text-owed-600" : "text-clean-600"}`}>
-              {rupees(owed)}
+              <Rupees value={owed} />
             </dd>
           </div>
           <div className="py-4 pr-4 sm:px-4 border-b border-line">
