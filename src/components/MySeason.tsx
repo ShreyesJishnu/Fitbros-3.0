@@ -10,6 +10,7 @@ import {
 import { User, WorkoutDay, WorkoutKind } from "../types";
 import { apiFetch, isAdmin } from "../services/http";
 import { todayIndex } from "../utils/today";
+import { celebrate } from "../utils/confetti";
 import { useToast } from "./ToastContext";
 import {
   CREDIT_BY_KIND,
@@ -97,10 +98,13 @@ const DayGrid: React.FC<{
   /** Only the week actually running marks today and reads days ahead as plans. */
   live: boolean;
   onCycle: (dayOfWeek: number, week: number) => void;
-}> = ({ week, userId, workoutDays, live, onCycle }) => (
+  /** Taps the server has not confirmed yet, keyed `week:dayOfWeek`. */
+  pending: Record<string, WorkoutKind | null>;
+}> = ({ week, userId, workoutDays, live, onCycle, pending }) => (
   <div className="grid grid-cols-7 gap-1.5">
     {DAYS.map((label, i) => {
       const dow = i + 1;
+      const key = `${week}:${dow}`;
       const isToday = live && i === todayIndex();
       // Days ahead are tappable: planning the week is how the group uses them.
       // They are only worded as plans, not as done.
@@ -108,11 +112,16 @@ const DayGrid: React.FC<{
       const row = workoutDays.find(
         (w) => w.userId === userId && w.week === week && w.dayOfWeek === dow && w.isCompleted
       );
-      const kind = row ? row.kind ?? "session" : null;
+      // What the tap asked for wins until the server has answered. Before this
+      // the cell sat unchanged for the whole round trip, so people tapped again
+      // — and the second tap is not a retry, it is the next state.
+      const stored = row ? row.kind ?? "session" : null;
+      const kind = key in pending ? pending[key] : stored;
       const worth = kind ? CREDIT_BY_KIND[kind] : 0;
       return (
         <button
           key={label}
+          data-day={key}
           onClick={() => onCycle(dow, week)}
           aria-pressed={Boolean(kind)}
           aria-label={`${label}${isToday ? ", today" : isFuture ? ", ahead" : ""}: ${
@@ -126,7 +135,8 @@ const DayGrid: React.FC<{
              and last columns are flush with the page, where an outside ring
              loses an edge. */
           className={`min-h-[56px] rounded-xl border text-xs font-semibold cursor-pointer
-            transition-colors duration-150 ease-settle disabled:opacity-40 disabled:cursor-not-allowed
+            transition-[color,background-color,border-color,transform] duration-150 ease-settle
+            active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
             ${isToday ? "ring-2 ring-inset ring-ink" : ""}
             ${
               kind === "session"
@@ -137,10 +147,12 @@ const DayGrid: React.FC<{
             }`}
         >
           <span className={`block ${isToday && !kind ? "text-ink" : ""}`}>{label}</span>
+          {/* Keyed on the kind so React remounts the icon, and the pop plays
+              on every change rather than only the first. */}
           {kind === "session" ? (
-            <Check size={14} className="mx-auto mt-1" aria-hidden="true" />
+            <Check key="session" size={14} className="mx-auto mt-1 animate-pop" aria-hidden="true" />
           ) : kind === "steps" ? (
-            <Footprints size={14} className="mx-auto mt-1" aria-hidden="true" />
+            <Footprints key="steps" size={14} className="mx-auto mt-1 animate-pop" aria-hidden="true" />
           ) : null}
           {kind ? <span className="sr-only">worth {worth} of a workout</span> : null}
         </button>
@@ -178,14 +190,23 @@ const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => (
           title={`Week ${week}: ${credit(credits)} of ${needed}${
             clean ? " — clean, and still running" : " so far — still running"
           }`}
-          className={`flex-1 rounded-md border-2 border-dashed relative overflow-hidden h-8 ${
+          className={`flex-1 rounded-md border-2 border-dashed relative overflow-hidden h-8
+            transition-colors duration-300 ease-settle ${
             clean ? "border-clean-500 bg-clean-500" : "border-ink-faint"
           }`}
         >
           {clean ? null : (
             <div
-              className="absolute inset-x-0 bottom-0 bg-clean-500/40"
-              style={{ height: `${Math.min(100, (credits / needed) * 100)}%` }}
+              // Rises as the week is logged, so the strip answers "how far am I"
+              // without counting cells. A quarter of the way used to be an 8px
+              // wash nobody could see on a phone, so the fill starts at a third
+              // of the cell and the rest of the climb is proportional.
+              className="absolute inset-x-0 bottom-0 bg-clean-500/50 transition-[height] duration-500 ease-settle"
+              style={{
+                height: credits
+                  ? `${33 + Math.min(67, (credits / needed) * 67)}%`
+                  : "0%",
+              }}
             />
           )}
         </div>
@@ -258,6 +279,15 @@ const MySeason: React.FC<MySeasonProps> = ({
   const admin = isAdmin();
   const { showToast } = useToast();
   const [editingWeek, setEditingWeek] = useState<number | null>(null);
+  /**
+   * Taps the server has not answered yet, keyed `week:dayOfWeek`.
+   *
+   * The cell paints from this the instant it is tapped and clears when the
+   * reload lands. Without it the screen sat still for the whole round trip —
+   * on a phone, in a gym, that reads as a dropped tap, and the retry was not a
+   * retry: it advanced the cycle and quietly turned a workout into half of one.
+   */
+  const [pending, setPending] = useState<Record<string, WorkoutKind | null>>({});
 
   const load = useCallback(async () => {
     try {
@@ -321,11 +351,24 @@ const MySeason: React.FC<MySeasonProps> = ({
    */
   const cycleDay = async (dayOfWeek: number, week: number) => {
     if (!currentUser || !me) return;
+    const key = `${week}:${dayOfWeek}`;
+    // A second tap while the first is still in the air is someone asking "did
+    // that land?", not asking for the next state. Answer it by doing nothing.
+    if (key in pending) return;
+
     const existing = workoutDays.find(
       (w) => w.userId === currentUser.id && w.week === week && w.dayOfWeek === dayOfWeek
     );
     const current = existing?.isCompleted ? existing.kind ?? "session" : "none";
     const next = NEXT_KIND[current];
+
+    // Paint it now. The server is the authority, but it is not the audience.
+    setPending((p) => ({ ...p, [key]: next }));
+
+    const live = week === me.currentWeekProgress.week;
+    const before = me.currentWeekProgress.credits;
+    const after = before - (current === "none" ? 0 : CREDIT_BY_KIND[current]) + (next ? CREDIT_BY_KIND[next] : 0);
+    const justWentClean = live && before < me.currentWeekProgress.needed && after >= me.currentWeekProgress.needed;
 
     const saved = await onUpdateWorkoutDay({
       id: existing?.id || `workout-${currentUser.id}-${week}-${dayOfWeek}-${Date.now()}`,
@@ -345,14 +388,24 @@ const MySeason: React.FC<MySeasonProps> = ({
     // correction, not an achievement; and cheering a write that never landed —
     // offline, or refused — put "Good job!" on screen beside the error saying
     // nothing had been saved.
-    if (next && saved) {
+    if (!saved) {
+      // Nothing was written, so nothing should look written.
+      setPending((p) => {
+        const { [key]: _dropped, ...rest } = p;
+        return rest;
+      });
+      return;
+    }
+
+    if (next) {
       // A day ahead is a plan, not a result — cheering it as done would be the
       // app claiming training that has not happened.
-      const live = week === me.currentWeekProgress.week;
       const planned = live && dayOfWeek > todayIndex() + 1;
       showToast(
         !live
           ? `Week ${week} updated. The season has re-scored it.`
+          : justWentClean
+          ? `That's the week. ${currentUser.name} is clean — ${WEEKS_TO_MOVE} in a row halves the price.`
           : planned
           ? `${currentUser.name} is down for ${DAYS[dayOfWeek - 1]}. Hold yourself to it.`
           : `${currentUser.name} ${next === "steps" ? "walked it" : "done"}! Good job!`,
@@ -360,8 +413,20 @@ const MySeason: React.FC<MySeasonProps> = ({
       );
     }
 
-    // The server re-derives fines from the sheet.
-    setTimeout(load, 400);
+    // The only thing this app asks of anyone, done. Fired from the cell that
+    // finished it, so the burst comes out of the tap.
+    if (justWentClean) {
+      const cell = document.querySelector(`[data-day="${key}"]`)?.getBoundingClientRect();
+      celebrate(cell ? { x: cell.left + cell.width / 2, y: cell.top + cell.height / 2 } : undefined);
+    }
+
+    // The server re-derives fines from the sheet, so the whole season is reread
+    // rather than patched. The optimistic paint holds until it lands.
+    await load();
+    setPending((p) => {
+      const { [key]: _done, ...rest } = p;
+      return rest;
+    });
   };
 
   if (loading) {
@@ -472,6 +537,7 @@ const MySeason: React.FC<MySeasonProps> = ({
                 workoutDays={workoutDays}
                 live
                 onCycle={cycleDay}
+                pending={pending}
               />
             </div>
           </div>
@@ -552,6 +618,7 @@ const MySeason: React.FC<MySeasonProps> = ({
                     workoutDays={workoutDays}
                     live={false}
                     onCycle={cycleDay}
+                    pending={pending}
                   />
                   <p className="text-xs text-ink-muted mt-2">
                     Log what you actually did. The week is scored again as you tap, and any

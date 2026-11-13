@@ -142,3 +142,25 @@ code {
     padding-bottom: env(safe-area-inset-bottom);
   }
 }
+
+/* The icon arriving in a day cell that was just tapped. Keyed on the kind, so
+   it plays on every change rather than only the first — the tap is the whole
+   feedback loop, and it should look like something happened. */
+@keyframes pop {
+  0% {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.animate-pop {
+  animation: pop 0.26s cubic-bezier(0.32, 0.72, 0, 1);
+}
