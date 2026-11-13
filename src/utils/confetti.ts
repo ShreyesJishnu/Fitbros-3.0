@@ -30,11 +30,35 @@ const GRAVITY = 0.32;
 const DRAG = 0.992;
 const LIFETIME_MS = 1700;
 
-/** Reads a season colour straight off the stylesheet, so themes stay in step. */
-const token = (name: string, fallback: string): string => {
+/** A season colour straight off the stylesheet, as `[r, g, b]`. */
+const token = (name: string, fallback: [number, number, number]): [number, number, number] => {
   const raw = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-  return raw ? `rgb(${raw})` : fallback;
+  const parts = raw.split(/[\s,]+/).map(Number).filter((n) => Number.isFinite(n));
+  return parts.length === 3 ? (parts as [number, number, number]) : fallback;
 };
+
+const relativeLuminance = ([r, g, b]: [number, number, number]): number => {
+  const channel = (v: number) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+  };
+  return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+};
+
+const contrast = (a: [number, number, number], b: [number, number, number]): number => {
+  const [x, y] = [relativeLuminance(a), relativeLuminance(b)];
+  return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+};
+
+/**
+ * Only colours that can actually be seen against the page behind them.
+ *
+ * The first version picked five fixed tokens, one of which was `clean-100` — a
+ * near-paper tint that measured 1.17:1 on the light theme, so a fifth of the
+ * burst was invisible. The page's own background decides now, which also means
+ * a future change to the palette cannot quietly empty the confetti again.
+ */
+const MIN_CONTRAST = 2;
 
 /**
  * Fire a burst from a point on screen — usually the cell that just filled.
@@ -63,13 +87,16 @@ export function celebrate(origin?: { x: number; y: number }): void {
   }
   ctx.scale(dpr, dpr);
 
-  const colors = [
-    token("--clean-500", "rgb(47,111,78)"),
-    token("--clean-600", "rgb(47,111,78)"),
-    token("--clean-100", "rgb(232,242,236)"),
-    token("--skip-500", "rgb(154,107,18)"),
-    token("--ink", "rgb(27,29,25)"),
+  const behind = token("--paper", [244, 243, 239]);
+  const palette: [number, number, number][] = [
+    token("--clean-500", [47, 111, 78]),
+    token("--clean-600", [38, 92, 64]),
+    token("--owed-500", [168, 58, 30]),
+    token("--skip-500", [154, 107, 18]),
+    token("--ink", [27, 29, 25]),
   ];
+  const visible = palette.filter((c) => contrast(c, behind) >= MIN_CONTRAST);
+  const colors = (visible.length ? visible : palette).map(([r, g, b]) => `rgb(${r},${g},${b})`);
 
   const from = origin ?? { x: window.innerWidth / 2, y: window.innerHeight / 3 };
   const pieces: Piece[] = Array.from({ length: 70 }, () => {

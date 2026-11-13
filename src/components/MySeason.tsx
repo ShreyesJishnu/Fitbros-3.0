@@ -506,12 +506,15 @@ const MySeason: React.FC<MySeasonProps> = ({
                   );
                   if (!nudge) return null;
                   const tone = {
-                    owed: "bg-owed-50 text-owed-700",
-                    skip: "bg-skip-50 text-skip-700",
-                    clean: "bg-clean-50 text-clean-700",
+                    owed: "bg-owed-50 border-owed-100 text-owed-700",
+                    skip: "bg-skip-50 border-skip-100 text-skip-700",
+                    clean: "bg-clean-50 border-clean-100 text-clean-700",
                   }[nudge.tone];
                   return (
-                    <p role="status" className={`mt-4 rounded-xl px-4 py-3 text-sm font-medium ${tone}`}>
+                    <p
+                      role="status"
+                      className={`mt-4 rounded-xl border px-4 py-3 text-sm font-medium ${tone}`}
+                    >
                       {nudge.text}
                     </p>
                   );
@@ -645,8 +648,8 @@ const MySeason: React.FC<MySeasonProps> = ({
               {me.unsettledFines.map((f) => (
                 <li
                   key={f.id}
-                  className={`flex flex-wrap items-center justify-between gap-3 rounded-xl px-3 py-2 ${
-                    f.overdue ? "bg-owed-50" : "bg-paper-sunk"
+                  className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-3 py-2 ${
+                    f.overdue ? "bg-owed-50 border-owed-100" : "bg-paper-sunk border-line"
                   }`}
                 >
                   <span className="flex items-center gap-2 text-sm">

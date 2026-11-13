@@ -10,24 +10,27 @@
 :root {
   --paper: 244 243 239;
   --paper-card: 255 255 255;
-  --paper-sunk: 236 234 228;
+  --paper-sunk: 231 228 220;
   --ink: 27 29 25;
   --ink-muted: 83 87 79;
   --ink-faint: 99 103 95;
   --line: 226 222 214;
   --line-soft: 238 235 228;
-  --clean-50: 232 242 236;
-  --clean-100: 211 231 220;
+  /* Light tints sat 1.03–1.08 against the paper — the same colour as the page,
+     so a banner was a block of text with no edges. Deepened until the surface
+     reads as a surface; the 700-weight ink on them still clears 7:1. */
+  --clean-50: 202 228 211;
+  --clean-100: 170 207 183;
   --clean-500: 47 111 78;
   --clean-600: 38 92 64;
   --clean-700: 29 72 49;
-  --owed-50: 248 233 228;
-  --owed-100: 242 217 209;
+  --owed-50: 244 210 199;
+  --owed-100: 233 176 160;
   --owed-500: 168 58 30;
   --owed-600: 140 47 24;
   --owed-700: 111 37 18;
-  --skip-50: 249 239 219;
-  --skip-100: 243 227 194;
+  --skip-50: 246 218 174;
+  --skip-100: 236 195 128;
   --skip-500: 154 107 18;
   --skip-600: 128 88 14;
   --skip-700: 101 70 11;
