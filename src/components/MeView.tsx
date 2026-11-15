@@ -11,15 +11,21 @@ import WhoYouAre from "./WhoYouAre";
 interface MeViewProps {
   currentUser: User | null;
   workoutDays: WorkoutDay[];
+  workoutsFresh: boolean;
   onUpdateWorkoutDay: (day: WorkoutDay) => Promise<boolean>;
   onUpdateUser: (user: User) => void | Promise<void>;
 }
 
-const MeView: React.FC<MeViewProps> = ({ currentUser, workoutDays, onUpdateWorkoutDay, onUpdateUser }) => (
+const MeView: React.FC<MeViewProps> = ({ currentUser, workoutDays, workoutsFresh, onUpdateWorkoutDay, onUpdateUser }) => (
   <div>
     <WhoYouAre currentUser={currentUser} onUpdateUser={onUpdateUser} />
 
-    <MySeason currentUser={currentUser} workoutDays={workoutDays} onUpdateWorkoutDay={onUpdateWorkoutDay} />
+    <MySeason
+      currentUser={currentUser}
+      workoutDays={workoutDays}
+      workoutsFresh={workoutsFresh}
+      onUpdateWorkoutDay={onUpdateWorkoutDay}
+    />
   </div>
 );
 

@@ -500,6 +500,7 @@ function AppContent() {
               <MeView
                 currentUser={currentUser}
                 workoutDays={workoutDays}
+                workoutsFresh={hasLoaded}
                 onUpdateWorkoutDay={updateWorkoutDay}
                 onUpdateUser={updateUser}
               />

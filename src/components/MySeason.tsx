@@ -11,6 +11,8 @@ import { User, WorkoutDay, WorkoutKind } from "../types";
 import { apiFetch, isAdmin } from "../services/http";
 import { todayIndex } from "../utils/today";
 import { celebrate } from "../utils/confetti";
+import { kindOn, takeoverForTap, TakeoverShow } from "../utils/takeover";
+import DayTakeover from "./DayTakeover";
 import { Rupees } from "../utils/countUp";
 import { useToast } from "./ToastContext";
 import SquadWall from "./SquadWall";
@@ -78,8 +80,13 @@ interface SeasonView {
 interface MySeasonProps {
   currentUser: User | null;
   workoutDays: WorkoutDay[];
+  /** False while the sheet is still the cached copy from the last visit. */
+  workoutsFresh: boolean;
   onUpdateWorkoutDay: (day: WorkoutDay) => Promise<boolean>;
 }
+
+/** Players who have had the opening takeover this page load — once each, not on every remount. */
+const greeted = new Set<string>();
 
 const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
@@ -275,8 +282,10 @@ const nudgeFor = (
 const MySeason: React.FC<MySeasonProps> = ({
   currentUser,
   workoutDays,
+  workoutsFresh,
   onUpdateWorkoutDay,
 }) => {
+  const [takeover, setTakeover] = useState<TakeoverShow | null>(null);
   const [players, setPlayers] = useState<SeasonView[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -321,6 +330,15 @@ const MySeason: React.FC<MySeasonProps> = ({
     () => players.find((p) => p.userId === currentUser?.id) ?? null,
     [players, currentUser]
   );
+
+  // Opening the app plays today as it stands. Waits for the live sheet: the
+  // cached one from last visit would call a day logged elsewhere "not done".
+  const liveWeek = me?.currentWeekProgress.week;
+  useEffect(() => {
+    if (!currentUser || !liveWeek || !workoutsFresh || greeted.has(currentUser.id)) return;
+    greeted.add(currentUser.id);
+    setTakeover({ kind: kindOn(workoutDays, currentUser.id, liveWeek, todayIndex() + 1), id: Date.now() });
+  }, [currentUser, liveWeek, workoutsFresh, workoutDays]);
   const editableWeeks = useMemo(() => {
     if (!me) return [];
     // A fined week whose fine is not in the unsettled list has been paid, and
@@ -420,6 +438,9 @@ const MySeason: React.FC<MySeasonProps> = ({
       );
     }
 
+    const show = takeoverForTap({ live, dayOfWeek, today: todayIndex(), next });
+    if (show) setTakeover({ ...show, id: Date.now() });
+
     // The only thing this app asks of anyone, done. Fired from the cell that
     // finished it, so the burst comes out of the tap.
     if (justWentClean) {
@@ -474,6 +495,7 @@ const MySeason: React.FC<MySeasonProps> = ({
 
   return (
     <div className="space-y-5">
+      <DayTakeover show={takeover} name={currentUser?.name ?? ""} onDone={() => setTakeover(null)} />
       {notice ? (
         <div role="status" className="text-sm border border-line bg-paper-card rounded-xl px-4 py-3 text-ink">
           {notice}
