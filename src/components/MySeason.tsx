@@ -13,6 +13,9 @@ import { todayIndex } from "../utils/today";
 import { celebrate } from "../utils/confetti";
 import { Rupees } from "../utils/countUp";
 import { useToast } from "./ToastContext";
+import SquadWall from "./SquadWall";
+import GroupSummary from "./GroupSummary";
+import YourSeasonGrid from "./YourSeasonGrid";
 import {
   CREDIT_BY_KIND,
   PAYMENT_GRACE_HOURS,
@@ -44,12 +47,18 @@ interface UnsettledFine {
   id: string;
   week: number;
   amount: number;
+  dueAt: string;
   overdue: boolean;
 }
 
 interface SeasonView {
   userId: string;
   name: string;
+  avatar?: string | null;
+  /** Left the season: off the board, their paid fines stay in the pot. */
+  hasLeft?: boolean;
+  /** The running week, Monday first. null is a day with nothing logged. */
+  days?: (WorkoutKind | null)[];
   currentWeek: number;
   priceLevel: number;
   fineIfMissed: number;
@@ -74,14 +83,6 @@ interface MySeasonProps {
 
 const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
-const OUTCOME_STYLE = {
-  clean: "bg-clean-500",
-  missed: "bg-owed-500",
-  // Neither kept nor missed. Grey says "not judged" where the two live colours
-  // both say "scored".
-  excused: "bg-line-soft",
-} as const;
-
 /**
  * How deep into an unbroken clean run each week sits.
  *
@@ -104,16 +105,6 @@ export const cleanRun = (weeks: { outcome: string }[]): number[] => {
   });
 };
 
-/* Deeper with every week held. The steps intensify on both grounds — 600 and
-   700 are darker than 500 on paper and lighter than it in the dark, so a run
-   reads as a run either way round. */
-const CLEAN_HEAT = ["bg-clean-500", "bg-clean-500", "bg-clean-600", "bg-clean-700"] as const;
-const heat = (run: number) => CLEAN_HEAT[Math.min(run, CLEAN_HEAT.length - 1)];
-
-/** The streak number itself, coloured by the same scale as the strip. */
-const STREAK_TEXT = ["text-ink", "text-ink", "text-clean-600", "text-clean-700"] as const;
-
-const OUTCOME_LABEL = { clean: "Clean", missed: "Fined", excused: "Away" } as const;
 
 /**
  * Seven days of one week, tappable.
@@ -178,7 +169,9 @@ const DayGrid: React.FC<{
             }`}
         >
           <span
-            key={kind ?? "none"}
+            /* Prefixed: the icon beside it is keyed on the kind too, and two
+               siblings sharing a key made React stack a fresh label per tap. */
+            key={`label-${kind ?? "none"}`}
             className={`block animate-settle-up ${isToday && !kind ? "text-ink" : ""}`}
           >
             {label}
@@ -188,9 +181,9 @@ const DayGrid: React.FC<{
               cell has to have moved before its icon arrives, or the press reads
               as a side effect of the icon instead of the cause of it. */}
           {kind === "session" ? (
-            <Check key="session" size={14} className="mx-auto mt-1 animate-pop-late" aria-hidden="true" />
+            <Check key="icon-session" size={14} className="mx-auto mt-1 animate-pop-late" aria-hidden="true" />
           ) : kind === "steps" ? (
-            <Footprints key="steps" size={14} className="mx-auto mt-1 animate-pop-late" aria-hidden="true" />
+            <Footprints key="icon-steps" size={14} className="mx-auto mt-1 animate-pop-late" aria-hidden="true" />
           ) : null}
           {kind ? <span className="sr-only">worth {worth} of a workout</span> : null}
         </button>
@@ -198,81 +191,6 @@ const DayGrid: React.FC<{
     })}
   </div>
 );
-
-/**
- * The season so far, plus the week still running, as one strip.
- *
- * Builds itself from the baseline when the screen arrives, a bar at a time.
- * The stagger is capped: by week twenty an uncapped one would still be drawing
- * while somebody was trying to read it.
- */
-const STAGGER_MS = 16;
-const STAGGER_CAP = 20;
-
-const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => {
-  const runs = cleanRun(view.weeks);
-  return (
-  <div className="flex gap-1" role="list" aria-label={`${view.name}'s weeks`}>
-    {view.weeks.map((w, i) => (
-      <div
-        key={w.week}
-        role="listitem"
-        title={`Week ${w.week}: ${credit(w.credits)} workouts — ${OUTCOME_LABEL[w.outcome]}${
-          runs[i] > 1 ? `, ${runs[i]} in a row` : ""
-        }${w.fine ? ` (${rupees(w.fine)})` : ""}`}
-        style={{ animationDelay: `${Math.min(i, STAGGER_CAP) * STAGGER_MS}ms` }}
-        className={`flex-1 rounded-md h-8 animate-grow ${
-          w.outcome === "clean" ? heat(runs[i]) : OUTCOME_STYLE[w.outcome]
-        }`}
-      />
-    ))}
-    {/*
-      The running week fills as it goes and turns solid the moment it is clean.
-      It used to stay a pale wash until the admin closed the week, so hitting
-      the target looked the same as being a workout short — the one moment the
-      screen most needs to say yes. The border stays dashed: the week is clean,
-      and still running.
-    */}
-    {(() => {
-      const { week, credits, needed } = view.currentWeekProgress;
-      const clean = credits >= needed;
-      return (
-        <div
-          role="listitem"
-          title={`Week ${week}: ${credit(credits)} of ${needed}${
-            clean ? " — clean, and still running" : " so far — still running"
-          }`}
-          style={{
-            animationDelay: `${Math.min(view.weeks.length, STAGGER_CAP) * STAGGER_MS}ms`,
-          }}
-          className={`flex-1 rounded-md border-2 border-dashed relative overflow-hidden h-8
-            animate-grow transition-colors duration-300 ease-settle ${
-            clean ? "border-clean-500 bg-clean-500" : "border-ink-faint"
-          }`}
-        >
-          {clean ? null : (
-            <div
-              // Rises as the week is logged, so the strip answers "how far am I"
-              // without counting cells. A quarter of the way used to be an 8px
-              // wash nobody could see on a phone, so the fill starts at a third
-              // of the cell and the rest of the climb is proportional.
-              // Last in the sequence: cell, icon, count, then the season.
-              className="absolute inset-x-0 bottom-0 bg-clean-500/50 transition-[height]
-                         duration-500 delay-[120ms] ease-settle"
-              style={{
-                height: credits
-                  ? `${33 + Math.min(67, (credits / needed) * 67)}%`
-                  : "0%",
-              }}
-            />
-          )}
-        </div>
-      );
-    })()}
-  </div>
-  );
-};
-
 
 /**
  * The credit a tap is already showing that the server has not confirmed.
@@ -645,21 +563,26 @@ const MySeason: React.FC<MySeasonProps> = ({
             </div>
           </div>
 
+          {/* Logging first, then the group, then you — the dashboard's order. */}
+          <div className="pt-8 pb-8 border-t border-line space-y-8">
+            {/* Every row, leavers too: what they paid is still in the pot. */}
+            <GroupSummary rows={players} />
+            <SquadWall
+              rows={players.filter((p) => !p.hasLeft)}
+              currentWeek={me.currentWeekProgress.week}
+              currentUserId={me.userId}
+            />
+          </div>
+
+          <div className="pt-8 pb-6 border-t border-line">
+            <YourSeasonGrid row={me} workoutDays={workoutDays} currentWeek={me.currentWeekProgress.week} />
+          </div>
+
           {/* The numbers a player actually tracks. */}
-          <dl className="grid grid-cols-2 sm:grid-cols-4 border-t border-line sm:divide-x divide-line">
+          <dl className="grid grid-cols-3 border-t border-line sm:divide-x divide-line">
             <div className="py-4 pr-4 sm:px-4 sm:first:pl-0 border-b border-line">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Clean weeks</dt>
               <dd className="display text-2xl tnum mt-0.5 text-clean-600">{me.cleanWeeks}</dd>
-            </div>
-            <div className="py-4 pr-4 sm:px-4 border-b border-line">
-              <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Streak</dt>
-              <dd
-                className={`display text-2xl tnum mt-0.5 ${
-                  STREAK_TEXT[Math.min(me.cleanStreak, STREAK_TEXT.length - 1)]
-                }`}
-              >
-                {me.cleanStreak}
-              </dd>
             </div>
             <div className="py-4 pr-4 sm:px-4 border-b border-line">
               <dt className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted">Paid in</dt>
@@ -672,24 +595,6 @@ const MySeason: React.FC<MySeasonProps> = ({
               <dd className="display text-2xl tnum mt-0.5 text-owed-600">{me.missedWeeks}</dd>
             </div>
           </dl>
-
-          <div className="pt-5">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-ink-muted mb-2">
-              Your season
-            </p>
-            <WeekStrip view={me} />
-            <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[11px] text-ink-muted">
-              <span className="flex items-center gap-1.5">
-                <i className="w-2.5 h-2.5 rounded-sm bg-clean-500" aria-hidden="true" /> {me.cleanWeeks} clean
-              </span>
-              <span className="flex items-center gap-1.5">
-                <i className="w-2.5 h-2.5 rounded-sm bg-owed-500" aria-hidden="true" /> {me.missedWeeks} fined
-              </span>
-              <span className="flex items-center gap-1.5">
-                <i className="w-2.5 h-2.5 rounded-sm border-2 border-dashed border-ink-faint" aria-hidden="true" /> this week
-              </span>
-            </div>
-          </div>
 
           {/*
             Correcting a week that has closed. The same grid as the running

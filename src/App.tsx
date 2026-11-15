@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef, Suspense, lazy } from "react";
-import { User, Goal, WorkoutDay, AdminSettings } from "./types";
+import { User, WorkoutDay, AdminSettings } from "./types";
 import Header from "./components/Header";
 import ErrorBoundary from "./components/ErrorBoundary";
 import OfflineBanner from "./components/OfflineBanner";
@@ -10,14 +10,13 @@ import { apiFetch, currentPlayerId, isAdmin, setCurrentPlayerId } from "./servic
 
 // All four view components are code-split so only the chunk for the active
 // view is downloaded on initial load.
-const GroupBoard = lazy(() => import("./components/GroupBoard"));
-const Rules = lazy(() => import("./components/Rules"));
+const RulesSheet = lazy(() => import("./components/RulesSheet"));
 const MeView = lazy(() => import("./components/MeView"));
 
 
 const Admin = lazy(() => import("./components/Admin"));
 
-type ActiveView = "me" | "group" | "rules" | "admin";
+type ActiveView = "me" | "admin";
 
 const SNAPSHOT_KEY = "fitbois:snapshot";
 const SNAPSHOT_VERSION = 1;
@@ -28,7 +27,6 @@ interface Snapshot {
   savedAt: number;
   users: User[];
   workoutDays: WorkoutDay[];
-  goals: Goal[];
 }
 
 const readSnapshot = (): Snapshot | null => {
@@ -67,7 +65,6 @@ function AppContent() {
   const initialSnapshot = useRef<Snapshot | null>(readSnapshot()).current;
 
   const [users, setUsers] = useState<User[]>(initialSnapshot?.users ?? []);
-  const [goals, setGoals] = useState<Goal[]>(initialSnapshot?.goals ?? []);
   const [workoutDays, setWorkoutDays] = useState<WorkoutDay[]>(
     initialSnapshot?.workoutDays ?? []
   );
@@ -90,12 +87,11 @@ function AppContent() {
     () => {
       // A view name saved by an older build must not leave the page blank.
       const saved = localStorage.getItem("activeView");
-      if (saved === "admin" && !isAdmin()) return "me";
-      return saved === "me" || saved === "group" || saved === "rules" || saved === "admin"
-        ? saved
-        : "me";
+      // "group" and "rules" were tabs once; they are the dashboard and a sheet now.
+      return saved === "admin" && isAdmin() ? "admin" : "me";
     }
   );
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [isOffline, setIsOffline] = useState(false);
   const [snapshotSavedAt, setSnapshotSavedAt] = useState<number | null>(
     initialSnapshot?.savedAt ?? null
@@ -180,18 +176,16 @@ function AppContent() {
 
   const loadData = useCallback(async (): Promise<boolean> => {
     try {
-      // Fire all three reads in parallel. A rejection on any required call
+      // Fire both reads in parallel. A rejection on any required call
       // surfaces as "API unreachable" via the catch below — no separate
       // /api/health round-trip needed.
-      const [dbUsers, dbWorkouts, dbGoals] = await Promise.all([
+      const [dbUsers, dbWorkouts] = await Promise.all([
         apiService.getUsers(),
         apiService.getAllWorkouts(),
-        apiService.getAllGoals(),
       ]);
 
       setUsers(dbUsers);
       setWorkoutDays(dbWorkouts);
-      setGoals(dbGoals);
       setCurrentUser((prev) => {
         const remembered = prev?.id ?? currentPlayerId();
         const mine = dbUsers.find((u) => u.id === remembered) ?? null;
@@ -201,7 +195,6 @@ function AppContent() {
       writeSnapshot({
         users: dbUsers,
         workoutDays: dbWorkouts,
-        goals: dbGoals,
       });
       setSnapshotSavedAt(Date.now());
       setIsOffline(false);
@@ -333,59 +326,6 @@ function AppContent() {
     }
   };
 
-  const addGoal = async (goal: Goal) => {
-    if (blockIfOffline()) return;
-    try {
-      const savedGoal = await apiService.createGoal(goal);
-      setGoals((prevGoals) => [...prevGoals, savedGoal]);
-    } catch (error) {
-      console.error("Error saving goal to database:", error);
-      showToast(
-        `Failed to save goal: ${error instanceof Error ? error.message : "Unknown error"}`,
-        "error",
-      );
-    }
-  };
-
-  const updateGoal = async (updatedGoal: Goal) => {
-    if (blockIfOffline()) return;
-    try {
-      const savedGoal = await apiService.updateGoal(
-        updatedGoal.id,
-        updatedGoal,
-      );
-
-      let completionChanged = false;
-      setGoals((prevGoals) => {
-        const prior = prevGoals.find((g) => g.id === updatedGoal.id);
-        completionChanged = prior?.isCompleted !== updatedGoal.isCompleted;
-        return prevGoals.map((g) => (g.id === updatedGoal.id ? savedGoal : g));
-      });
-
-      if (completionChanged) recalculateUserConsistency();
-    } catch (error) {
-      console.error("Error updating goal in database:", error);
-      showToast(
-        `Failed to update goal: ${error instanceof Error ? error.message : "Unknown error"}`,
-        "error",
-      );
-    }
-  };
-
-  const deleteGoal = async (goalId: string) => {
-    if (blockIfOffline()) return;
-    try {
-      await apiService.deleteGoal(goalId);
-      setGoals((prevGoals) => prevGoals.filter((g) => g.id !== goalId));
-    } catch (error) {
-      console.error("Error deleting goal from database:", error);
-      showToast(
-        `Failed to delete goal: ${error instanceof Error ? error.message : "Unknown error"}`,
-        "error",
-      );
-    }
-  };
-
   /** Returns whether the day actually reached the server — callers cheer on true. */
   const updateWorkoutDay = async (workoutDay: WorkoutDay): Promise<boolean> => {
     if (blockIfOffline()) return false;
@@ -421,7 +361,6 @@ function AppContent() {
       await apiService.deleteUser(userId);
 
       setUsers((prevUsers) => prevUsers.filter((u) => u.id !== userId));
-      setGoals((prevGoals) => prevGoals.filter((g) => g.userId !== userId));
       setWorkoutDays((prevWorkouts) =>
         prevWorkouts.filter((w) => w.userId !== userId),
       );
@@ -535,6 +474,7 @@ function AppContent() {
       <Header
         activeView={activeView}
         onViewChange={setActiveView}
+        onOpenRules={() => setRulesOpen(true)}
         isAdmin={admin}
         users={users}
         currentUser={currentUser}
@@ -547,7 +487,7 @@ function AppContent() {
         }}
       />
 
-      <main className="max-w-5xl mx-auto px-5 sm:px-8 py-8 pb-28 md:pb-12">
+      <main className="max-w-5xl mx-auto px-5 sm:px-8 py-8 pb-12">
         <ErrorBoundary>
           <Suspense
             fallback={
@@ -559,22 +499,13 @@ function AppContent() {
             {!emptySeason && !unlinked && activeView === "me" && (
               <MeView
                 currentUser={currentUser}
-                users={users}
-                goals={goals}
                 workoutDays={workoutDays}
                 onUpdateWorkoutDay={updateWorkoutDay}
-                onAddGoal={addGoal}
-                onUpdateGoal={updateGoal}
-                onDeleteGoal={deleteGoal}
                 onUpdateUser={updateUser}
               />
             )}
 
-            {!emptySeason && activeView === "group" && <GroupBoard currentUser={currentUser} goals={goals} />}
-
-            {activeView === "rules" && <Rules />}
-
-            {emptySeason && (activeView === "me" || activeView === "group") ? (
+            {emptySeason && activeView === "me" ? (
               <div className="py-16 text-center">
                 <h2 className="display text-3xl">Nobody has joined yet</h2>
                 <p className="text-sm text-ink-muted mt-2">
@@ -599,6 +530,7 @@ function AppContent() {
               />
             )}
 
+            {rulesOpen ? <RulesSheet onClose={() => setRulesOpen(false)} /> : null}
           </Suspense>
         </ErrorBoundary>
       </main>
