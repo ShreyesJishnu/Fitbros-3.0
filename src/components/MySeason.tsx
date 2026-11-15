@@ -167,8 +167,7 @@ const DayGrid: React.FC<{
              and last columns are flush with the page, where an outside ring
              loses an edge. */
           className={`min-h-[56px] rounded-xl border text-xs font-semibold cursor-pointer
-            transition-[color,background-color,border-color,transform] duration-150 ease-settle
-            active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
+            cell-press active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed
             ${isToday ? "ring-2 ring-inset ring-ink" : ""}
             ${
               kind === "session"
@@ -178,13 +177,20 @@ const DayGrid: React.FC<{
                   : "bg-paper-card border-line text-ink-muted hover:border-clean-500 hover:text-clean-600"
             }`}
         >
-          <span className={`block ${isToday && !kind ? "text-ink" : ""}`}>{label}</span>
+          <span
+            key={kind ?? "none"}
+            className={`block animate-settle-up ${isToday && !kind ? "text-ink" : ""}`}
+          >
+            {label}
+          </span>
           {/* Keyed on the kind so React remounts the icon, and the pop plays
-              on every change rather than only the first. */}
+              on every change rather than only the first. Late by design: the
+              cell has to have moved before its icon arrives, or the press reads
+              as a side effect of the icon instead of the cause of it. */}
           {kind === "session" ? (
-            <Check key="session" size={14} className="mx-auto mt-1 animate-pop" aria-hidden="true" />
+            <Check key="session" size={14} className="mx-auto mt-1 animate-pop-late" aria-hidden="true" />
           ) : kind === "steps" ? (
-            <Footprints key="steps" size={14} className="mx-auto mt-1 animate-pop" aria-hidden="true" />
+            <Footprints key="steps" size={14} className="mx-auto mt-1 animate-pop-late" aria-hidden="true" />
           ) : null}
           {kind ? <span className="sr-only">worth {worth} of a workout</span> : null}
         </button>
@@ -250,7 +256,9 @@ const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => {
               // without counting cells. A quarter of the way used to be an 8px
               // wash nobody could see on a phone, so the fill starts at a third
               // of the cell and the rest of the climb is proportional.
-              className="absolute inset-x-0 bottom-0 bg-clean-500/50 transition-[height] duration-500 ease-settle"
+              // Last in the sequence: cell, icon, count, then the season.
+              className="absolute inset-x-0 bottom-0 bg-clean-500/50 transition-[height]
+                         duration-500 delay-[120ms] ease-settle"
               style={{
                 height: credits
                   ? `${33 + Math.min(67, (credits / needed) * 67)}%`
@@ -265,6 +273,37 @@ const WeekStrip: React.FC<{ view: SeasonView }> = ({ view }) => {
   );
 };
 
+
+/**
+ * The credit a tap is already showing that the server has not confirmed.
+ *
+ * The grid paints a tap at once; the count beside it was read straight off the
+ * season the server last sent, so for the length of a round trip the cells and
+ * the number disagreed — five filled cells over the words "2 more workouts this
+ * week".
+ *
+ * A pending tap stops counting the moment the stored row agrees with it. That
+ * guard is the whole reason this is a function worth testing: the reload that
+ * confirms a tap and the clearing of that tap are two state changes, and in the
+ * render between them the credit would otherwise be counted twice — a week that
+ * reads clean on four workouts and a burst of confetti nobody earned.
+ */
+export const pendingCredit = (
+  pending: Record<string, WorkoutKind | null>,
+  workoutDays: WorkoutDay[],
+  userId: string,
+  liveWeek: number
+): number =>
+  Object.entries(pending).reduce((sum, [key, next]) => {
+    const [week, dayOfWeek] = key.split(":").map(Number);
+    if (week !== liveWeek) return sum;
+    const row = workoutDays.find(
+      (w) => w.userId === userId && w.week === week && w.dayOfWeek === dayOfWeek && w.isCompleted
+    );
+    const stored = row ? row.kind ?? "session" : null;
+    if (stored === next) return sum;
+    return sum + (next ? CREDIT_BY_KIND[next] : 0) - (stored ? CREDIT_BY_KIND[stored] : 0);
+  }, 0);
 
 /**
  * What the app should be telling this player right now.
@@ -505,7 +544,13 @@ const MySeason: React.FC<MySeasonProps> = ({
   // 1 = Monday … 7 = Sunday. One week shape for the whole group.
   const todayDow = ((new Date().getDay() + 6) % 7) + 1;
   const daysLeft = Math.max(0, WEEK_ENDS_ON - todayDow + 1);
-  const done = me?.currentWeekProgress.credits ?? 0;
+  const done = Math.max(
+    0,
+    (me?.currentWeekProgress.credits ?? 0) +
+      (me && currentUser
+        ? pendingCredit(pending, workoutDays, currentUser.id, me.currentWeekProgress.week)
+        : 0)
+  );
   const needed = me?.currentWeekProgress.needed ?? 5;
   const left = Math.max(0, needed - done);
 
@@ -580,7 +625,12 @@ const MySeason: React.FC<MySeasonProps> = ({
                     : `${credit(left)} more workout${left === 1 ? "" : "s"} this week`}
                 </p>
                 <p className="text-sm tnum text-ink-muted">
-                  {credit(done)}/{needed}
+                  {/* Keyed on the credit so it bumps when the number changes,
+                      a beat behind the cell that changed it. */}
+                  <span key={done} className="animate-bump">
+                    {credit(done)}
+                  </span>
+                  /{needed}
                 </p>
               </div>
 

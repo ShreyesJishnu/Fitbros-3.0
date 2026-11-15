@@ -119,6 +119,7 @@ html {
        watching an empty strip for half a second. */
     animation-delay: 0ms !important;
     transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
   }
 }
 
@@ -241,4 +242,71 @@ code {
 .animate-grow {
   transform-origin: bottom;
   animation: grow-up 0.26s cubic-bezier(0.32, 0.72, 0, 1) both;
+}
+
+/*
+ * A tap, in order.
+ *
+ * Everything used to land on one frame: the colour, the icon, the count and the
+ * strip all changed together, which reads as a screen redrawing rather than an
+ * act with a consequence. These three run in sequence behind one tap — the cell
+ * first, then its icon, then the number, then the strip.
+ *
+ * The cell presses in under the finger and springs back past its own size when
+ * it is let go — squash, then stretch, out of one curve. Only the transform
+ * overshoots; colour keeps the house easing, because a colour that overshoots
+ * passes through a green the palette does not contain. A single `transition`
+ * shorthand cannot give two properties two curves, which is why this is a class
+ * and not a handful of utilities.
+ */
+.cell-press {
+  transition:
+    color 150ms cubic-bezier(0.32, 0.72, 0, 1),
+    background-color 150ms cubic-bezier(0.32, 0.72, 0, 1),
+    border-color 150ms cubic-bezier(0.32, 0.72, 0, 1),
+    transform 220ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* A number that changed, a beat after the thing that changed it. */
+@keyframes bump {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+.animate-bump {
+  animation: bump 0.3s cubic-bezier(0.32, 0.72, 0, 1) 0.09s both;
+  display: inline-block;
+}
+
+/* The label inside a cell, reacting to its own icon arriving. Secondary: it
+   supports the tap without ever competing with it, which is why it moves two
+   pixels and not four. */
+@keyframes settle-up {
+  0% {
+    transform: translateY(0);
+  }
+  45% {
+    transform: translateY(-2px);
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
+.animate-settle-up {
+  animation: settle-up 0.32s cubic-bezier(0.32, 0.72, 0, 1) 0.07s both;
+}
+
+/* The icon waits for the cell to have moved. Without the delay it arrived on
+   the same frame as the press, so the press read as a side effect of the icon
+   rather than the cause of it. */
+.animate-pop-late {
+  animation: pop 0.26s cubic-bezier(0.32, 0.72, 0, 1) 0.07s both;
 }
