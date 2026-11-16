@@ -91,29 +91,6 @@ const greeted = new Set<string>();
 const rupees = (n: number) => `₹${n.toLocaleString("en-IN")}`;
 
 /**
- * How deep into an unbroken clean run each week sits.
- *
- * A run is the thing the rules actually reward — two in a row halves what a
- * miss costs — and the strip gave every clean week the same green, so four
- * scattered weeks looked exactly like four in a row. An excused week carries a
- * run across without extending it: that is the rule, it neither breaks a clean
- * streak nor builds one.
- */
-export const cleanRun = (weeks: { outcome: string }[]): number[] => {
-  let run = 0;
-  return weeks.map((w) => {
-    if (w.outcome === "missed") {
-      run = 0;
-      return 0;
-    }
-    if (w.outcome === "excused") return 0;
-    run += 1;
-    return run;
-  });
-};
-
-
-/**
  * Seven days of one week, tappable.
  *
  * The running week and a correction to an earlier one are the same act, so they
@@ -593,6 +570,7 @@ const MySeason: React.FC<MySeasonProps> = ({
               rows={players.filter((p) => !p.hasLeft)}
               currentWeek={me.currentWeekProgress.week}
               currentUserId={me.userId}
+              workoutDays={workoutDays}
             />
           </div>
 

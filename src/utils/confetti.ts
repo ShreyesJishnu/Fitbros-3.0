@@ -67,7 +67,10 @@ const MIN_CONTRAST = 2;
  * silently. That is the whole accommodation: no motion, no apology, and the
  * colour change still carries the news on its own.
  */
-export function celebrate(origin?: { x: number; y: number }): void {
+export function celebrate(
+  origin?: { x: number; y: number },
+  opts: { count?: number; flame?: boolean } = {}
+): void {
   if (typeof window === "undefined") return;
   if (window.matchMedia?.("(prefers-reduced-motion: reduce)").matches) return;
 
@@ -88,18 +91,28 @@ export function celebrate(origin?: { x: number; y: number }): void {
   ctx.scale(dpr, dpr);
 
   const behind = token("--paper", [244, 243, 239]);
-  const palette: [number, number, number][] = [
-    token("--clean-500", [47, 111, 78]),
-    token("--clean-600", [38, 92, 64]),
-    token("--owed-500", [168, 58, 30]),
-    token("--skip-500", [154, 107, 18]),
-    token("--ink", [27, 29, 25]),
-  ];
+  // A streak milestone is the flame's moment: embers first, the season's green
+  // behind them. Same contrast filter below, so neither theme loses pieces.
+  const palette: [number, number, number][] = opts.flame
+    ? [
+        token("--skip-500", [154, 107, 18]),
+        token("--skip-600", [128, 88, 14]),
+        token("--owed-500", [168, 58, 30]),
+        token("--clean-500", [47, 111, 78]),
+        token("--ink", [27, 29, 25]),
+      ]
+    : [
+        token("--clean-500", [47, 111, 78]),
+        token("--clean-600", [38, 92, 64]),
+        token("--owed-500", [168, 58, 30]),
+        token("--skip-500", [154, 107, 18]),
+        token("--ink", [27, 29, 25]),
+      ];
   const visible = palette.filter((c) => contrast(c, behind) >= MIN_CONTRAST);
   const colors = (visible.length ? visible : palette).map(([r, g, b]) => `rgb(${r},${g},${b})`);
 
   const from = origin ?? { x: window.innerWidth / 2, y: window.innerHeight / 3 };
-  const pieces: Piece[] = Array.from({ length: 70 }, () => {
+  const pieces: Piece[] = Array.from({ length: opts.count ?? 70 }, () => {
     // Up and outward, widest at the top — a burst, not a fountain.
     const angle = -Math.PI / 2 + (Math.random() - 0.5) * 2.1;
     const speed = 5 + Math.random() * 9;
